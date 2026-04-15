@@ -65,7 +65,19 @@ const setupStompSocket = (wss) => {
             try {
               const decoded = jwt.verify(token, process.env.JWT_SECRET);
               socket.userId = decoded.userId || decoded.id;
-              console.log(`STOMP User Authenticated: ${socket.userId} (Socket: ${socketId})`);
+              socket.sessionId = decoded.sessionId;
+              
+              console.log(`STOMP User Authenticated: ${socket.userId} (Session: ${socket.sessionId})`);
+
+              // Force logout other sessions
+              sockets.forEach((s, sid) => {
+                if (s.userId === socket.userId && s.sessionId !== socket.sessionId) {
+                  console.log(`Force logout old session for user ${socket.userId}: ${sid}`);
+                  s.send(buildFrame('ERROR', { message: 'SESSION_FORCE_LOGOUT' }, 'Tài khoản đã được đăng nhập từ một thiết bị khác.'));
+                  setTimeout(() => s.close(), 100);
+                }
+              });
+
               await PresenceService.setOnline(socket.userId, broadcastPresence);
             } catch (e) {
               console.error('STOMP Auth failed:', e.message);
@@ -293,7 +305,24 @@ const setupStompSocket = (wss) => {
 };
 
 const handleChatMessage = async (chatMessage) => {
-  const { type, conversationId, senderId, senderName, senderAvatar, content, targetMessageId, emoji, replyToId, replyToContent } = chatMessage;
+  let { type, conversationId, senderId, senderName, senderAvatar, content, targetMessageId, emoji, replyToId, replyToContent } = chatMessage;
+
+  // Augment missing sender info
+  if (senderId !== 'SYSTEM' && (!senderName || !senderAvatar)) {
+    try {
+      const user = await User.findById(senderId);
+      if (user) {
+        senderName = senderName || user.fullName;
+        senderAvatar = senderAvatar || user.avatarUrl;
+        
+        // Update the object for broadcasting
+        chatMessage.senderName = senderName;
+        chatMessage.senderAvatar = senderAvatar;
+      }
+    } catch (e) {
+      console.error('Failed to augment sender info:', e);
+    }
+  }
 
   if (type === 'TYPING' || type === 'STOP_TYPING') {
     broadcastToDestination('/topic/messages', chatMessage);
@@ -388,4 +417,18 @@ const broadcastToDestination = (destination, body) => {
   }
 };
 
-module.exports = { setupStompSocket, broadcastToDestination };
+const forceLogoutAllSessions = (userId, reason = 'Bạn đã đăng xuất') => {
+  sockets.forEach((s, sid) => {
+    if (s.userId && s.userId.toString() === userId.toString()) {
+      console.log(`Force logout global for user ${userId}: ${sid}`);
+      try {
+        s.send(buildFrame('ERROR', { message: 'SESSION_FORCE_LOGOUT' }, reason));
+        setTimeout(() => s.close(), 100);
+      } catch (err) {
+        console.error(`Failed to send logout to socket ${sid}:`, err.message);
+      }
+    }
+  });
+};
+
+module.exports = { setupStompSocket, broadcastToDestination, forceLogoutAllSessions };

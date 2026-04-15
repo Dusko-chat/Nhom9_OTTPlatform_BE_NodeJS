@@ -14,6 +14,7 @@ router.get('/offices', officeController.getOffices);
 // Admin & Manager routes
 router.get('/all', restrictTo('ADMIN', 'MANAGER', 'SUPER_ADMIN'), attendanceController.getAllHistory);
 router.get('/export/:userId', restrictTo('ADMIN', 'MANAGER', 'SUPER_ADMIN'), attendanceController.exportAttendanceToExcel);
+router.post('/export-bulk', restrictTo('ADMIN', 'MANAGER', 'SUPER_ADMIN'), attendanceController.exportBulkAttendance);
 
 // Admin only routes for Office settings
 router.post('/offices', restrictTo('ADMIN', 'SUPER_ADMIN'), officeController.createOffice);

@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
+const { validatePassword } = require('../utils/validationUtils');
 
 const getUser = async (req, res) => {
   try {
@@ -35,6 +36,10 @@ const changePassword = async (req, res) => {
     const { currentPassword, newPassword, confirmPassword } = req.body;
     if (!currentPassword) return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu hiện tại' });
     if (!newPassword) return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu mới' });
+    
+    const passwordError = validatePassword(newPassword);
+    if (passwordError) return res.status(400).json({ success: false, message: passwordError });
+
     if (newPassword !== confirmPassword) return res.status(400).json({ success: false, message: 'Mật khẩu mới và xác nhận mật khẩu không khớp' });
 
     const user = await User.findById(req.params.id);

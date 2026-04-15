@@ -1,10 +1,20 @@
 const User = require('../models/User');
 const Message = require('../models/Message');
+const Notification = require('../models/Notification');
+const PresenceService = require('../services/PresenceService');
+const { broadcastToDestination } = require('../sockets/stompHandler');
 
 exports.getOverviewStats = async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
     const totalMessages = await Message.countDocuments();
+    const lockedUsers = await User.countDocuments({ isLocked: true });
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const newUsersToday = await User.countDocuments({ createdAt: { $gte: startOfToday } });
+
+    const activeUsers = await PresenceService.getActiveUserCount();
 
     // Lấy số lượng tin nhắn theo ngày trong 7 ngày gần nhất
     const SevenDaysAgo = new Date();
@@ -36,9 +46,57 @@ exports.getOverviewStats = async (req, res) => {
       data: {
         totalUsers,
         totalMessages,
+        lockedUsers,
+        newUsersToday,
+        activeUsers,
         perDay
       }
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.sendAnnouncement = async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ success: false, message: 'Nội dung thông báo không được để trống' });
+
+    // 1. Create a System Message for Chat
+    const announcement = {
+      id: `system-${Date.now()}`,
+      senderId: 'SYSTEM',
+      senderName: 'Thông báo hệ thống',
+      content,
+      type: 'SYSTEM_ANNOUNCEMENT',
+      createdAt: new Date().toISOString()
+    };
+
+    // Broadcast to all connected users for Chat UI
+    broadcastToDestination('/topic/messages', announcement);
+
+    // 2. Create Persistent Notifications for ALL users
+    const allUsers = await User.find({}, '_id');
+    const notificationData = allUsers.map(user => ({
+      userId: user._id.toString(),
+      type: 'SYSTEM',
+      title: 'Thông báo hệ thống',
+      content: content,
+      read: false
+    }));
+
+    await Notification.insertMany(notificationData);
+
+    // 3. Optional: Broadcast to individual notification topics for real-time alert counts
+    allUsers.forEach(user => {
+      broadcastToDestination(`/topic/notifications/${user._id.toString()}`, {
+        type: 'NEW_NOTIFICATION',
+        title: 'Thông báo hệ thống',
+        content: content
+      });
+    });
+
+    res.json({ success: true, message: 'Thông báo đã được gửi thành công và lưu vào danh sách thông báo' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

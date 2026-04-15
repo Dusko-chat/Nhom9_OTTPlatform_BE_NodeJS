@@ -1,12 +1,17 @@
 const Redis = require('ioredis');
 
-const redis = new Redis({
+const redis = new Redis(process.env.REDIS_URL || {
   host: process.env.REDIS_HOST || '127.0.0.1',
   port: process.env.REDIS_PORT || 6379,
+}, {
   retryStrategy: (times) => {
     if (times > 3) return null; // stop retrying after 3 times to avoid spamming
     return Math.min(times * 50, 2000);
   }
+});
+
+redis.on('connect', () => {
+  console.log('Redis connected successfully to Upstash');
 });
 
 redis.on('error', (err) => {
@@ -72,4 +77,13 @@ const calculateStatus = (lastSeenStr) => {
   return 'ngoại tuyến';
 };
 
-module.exports = { setOnline, setOffline, getUserStatus };
+const getActiveUserCount = async () => {
+  try {
+    const keys = await redis.keys(`${PRESENCE_KEY_PREFIX}*`);
+    return keys.length;
+  } catch (err) {
+    return fallbackPresence.size;
+  }
+};
+
+module.exports = { setOnline, setOffline, getUserStatus, getActiveUserCount };

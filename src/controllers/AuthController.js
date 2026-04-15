@@ -1,4 +1,5 @@
 const AuthService = require('../services/AuthService');
+const stompHandler = require('../sockets/stompHandler');
 
 const register = async (req, res) => {
   try {
@@ -58,6 +59,20 @@ const resetPasswordWithOtp = async (req, res) => {
   }
 };
 
+const logout = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const result = await AuthService.logout(userId);
+    
+    // Broadcast logout to all sockets for this user
+    stompHandler.forceLogoutAllSessions(userId, 'Bạn đã đăng xuất.');
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   register,
   requestRegisterOtp,
@@ -65,4 +80,5 @@ module.exports = {
   login,
   requestForgotPasswordOtp,
   resetPasswordWithOtp,
+  logout,
 };

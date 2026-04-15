@@ -160,3 +160,76 @@ exports.exportAttendanceToExcel = async (req, res) => {
     }
   }
 };
+
+exports.exportBulkAttendance = async (req, res) => {
+  try {
+    const { userIds } = req.body;
+    if (!userIds || !Array.isArray(userIds)) {
+      return res.status(400).json({ success: false, message: 'Danh sách người dùng không hợp lệ' });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+
+    for (const userId of userIds) {
+      const user = await User.findById(userId);
+      if (!user) continue;
+
+      const history = await Attendance.find({ userId }).sort({ timestamp: 1 });
+      
+      // Limit sheet name to 31 chars (Excel requirement)
+      const sheetName = (user.fullName || 'User').substring(0, 31);
+      const worksheet = workbook.addWorksheet(sheetName);
+
+      // Headers
+      worksheet.columns = [
+        { header: 'STT', key: 'stt', width: 5 },
+        { header: 'Ngày', key: 'date', width: 15 },
+        { header: 'Giờ', key: 'time', width: 10 },
+        { header: 'Loại', key: 'type', width: 10 },
+        { header: 'Vị trí (Lat, Lng)', key: 'location', width: 30 },
+        { header: 'Khoảng cách (m)', key: 'distance', width: 15 },
+        { header: 'Trạng thái', key: 'status', width: 15 },
+        { header: 'Ghi chú', key: 'note', width: 30 },
+      ];
+
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+      // Add data
+      history.forEach((item, index) => {
+        const ts = item.timestamp ? new Date(item.timestamp) : new Date();
+        const lat = typeof item.latitude === 'number' ? item.latitude.toFixed(4) : 'N/A';
+        const lng = typeof item.longitude === 'number' ? item.longitude.toFixed(4) : 'N/A';
+        const dist = typeof item.distance === 'number' ? Math.round(item.distance) : 0;
+
+        worksheet.addRow({
+          stt: index + 1,
+          date: ts.toLocaleDateString('vi-VN'),
+          time: ts.toLocaleTimeString('vi-VN'),
+          type: item.type === 'IN' ? 'Vào ca' : 'Tan ca',
+          location: `${lat}, ${lng}`,
+          distance: dist,
+          status: item.status === 'SUCCESS' ? 'Hợp lệ' : 'Ngoài vùng',
+          note: item.note || ''
+        });
+      });
+    }
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="BaoCao_ChamCong_TongHop.xlsx"'
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error("LỖI XUẤT EXCEL HÀNG LOẠT:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+};

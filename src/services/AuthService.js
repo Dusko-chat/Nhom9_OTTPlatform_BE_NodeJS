@@ -1,7 +1,9 @@
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const User = require('../models/User');
 const { generateToken } = require('../utils/jwtUtils');
 const nodemailer = require('nodemailer');
+const { validatePassword } = require('../utils/validationUtils');
 
 const registerOtpSessions = new Map();
 const resetPasswordOtps = new Map();
@@ -28,6 +30,10 @@ const requestRegisterOtp = async (userData) => {
   const email = normalizeEmail(userData.email);
   if (!email) throw new Error('Email không được để trống');
   if (!userData.password) throw new Error('Mật khẩu không được để trống');
+  
+  const passwordError = validatePassword(userData.password);
+  if (passwordError) throw new Error(passwordError);
+
   if (!userData.fullName) throw new Error('Họ và tên không được để trống');
 
   const userExists = await User.findOne({ email });
@@ -104,11 +110,15 @@ const login = async (emailOrPhone, password) => {
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) throw new Error('Sai mật khẩu đăng nhập');
 
+  const sessionId = crypto.randomUUID();
+  user.currentSessionId = sessionId;
+  await user.save();
+
   return {
     userId: user._id,
     fullName: user.fullName,
     avatarUrl: user.avatarUrl,
-    token: generateToken(user._id, user.role),
+    token: generateToken(user._id, user.role, sessionId),
     role: user.role,
 
   };
@@ -151,6 +161,9 @@ const resetPasswordWithOtp = async (email, otp, newPassword) => {
 
   if (storedOtp !== otp) throw new Error('Mã OTP không chính xác');
 
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) throw new Error(passwordError);
+
   const user = await User.findOne({ email: normalized });
   if (!user) throw new Error('Người dùng không tồn tại');
 
@@ -163,10 +176,20 @@ const resetPasswordWithOtp = async (email, otp, newPassword) => {
   return { success: true, message: 'Đặt lại mật khẩu thành công' };
 };
 
+const logout = async (userId) => {
+  const user = await User.findById(userId);
+  if (user) {
+    user.currentSessionId = null;
+    await user.save();
+  }
+  return { success: true };
+};
+
 module.exports = {
   requestRegisterOtp,
   verifyRegisterOtp,
   login,
   requestForgotPasswordOtp,
   resetPasswordWithOtp,
+  logout
 };

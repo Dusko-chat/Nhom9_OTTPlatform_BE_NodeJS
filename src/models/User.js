@@ -12,7 +12,8 @@ const userSchema = new mongoose.Schema({
   jobTitle: { type: String },
    role: { type: String, default: 'GUEST' }, // SUPER_ADMIN, MANAGER, GUEST, EMP...
    isLocked: { type: Boolean, default: false },
-   pushToken: { type: String }
+   pushToken: { type: String },
+   currentSessionId: { type: String }
 
 }, { 
   timestamps: true,
