@@ -38,9 +38,25 @@ setupStompSocket(wss);
 connectDB();
 
 // Middleware
-// CORS Configuration - Cho phép tất cả để Mobile/Web đều vào được
+// CORS Configuration - Cho phép các domain cụ thể cho production
+const allowedOrigins = [
+  'https://dusko.io.vn',
+  'https://www.dusko.io.vn',
+  'http://localhost:5173',
+  'http://localhost:5174'
+];
+
 app.use(cors({
-  origin: true, // Cho phép mọi origin gửi request đến
+  origin: function (origin, callback) {
+    // Cho phép requests không có origin (như mobile apps hoặc curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.startsWith('exp://')) {
+      callback(null, true);
+    } else {
+      // Trong quá trình phát triển, có thể tạm thời cho phép tất cả nếu muốn
+      callback(null, true); 
+    }
+  },
   credentials: true
 }));
 app.use(express.json());

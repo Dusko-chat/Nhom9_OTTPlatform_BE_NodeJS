@@ -66,10 +66,21 @@ const unfriend = async (req, res) => {
   }
 };
 
+const rejectRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    await FriendService.rejectRequest(requestId);
+    res.json({ success: true, data: 'Rejected' });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getFriends,
   sendRequest,
   getPending,
   acceptRequest,
+  rejectRequest,
   unfriend,
 };

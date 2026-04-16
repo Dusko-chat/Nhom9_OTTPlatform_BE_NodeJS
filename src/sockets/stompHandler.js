@@ -93,14 +93,21 @@ const setupStompSocket = (wss) => {
               });
 
               await PresenceService.setOnline(socket.userId, broadcastPresence);
+              
+              // ONLY send CONNECTED after authentication success
+              socket.send(buildFrame('CONNECTED', { version: '1.2' }));
             } catch (e) {
               console.error('STOMP Auth failed:', e.message);
               socket.send(buildFrame('ERROR', { message: 'INVALID_TOKEN' }, 'Phiên làm việc không hợp lệ.'));
               setTimeout(() => socket.close(), 100);
               return;
             }
+          } else {
+            console.error('STOMP CONNECT failed: Missing Authorization header');
+            socket.send(buildFrame('ERROR', { message: 'MISSING_AUTH' }, 'Thiếu thông tin xác thực.'));
+            setTimeout(() => socket.close(), 100);
+            return;
           }
-          socket.send(buildFrame('CONNECTED', { version: '1.2' }));
         } else if (frame.command === 'SUBSCRIBE') {
           const destination = frame.headers['destination'];
           const subId = frame.headers['id'];

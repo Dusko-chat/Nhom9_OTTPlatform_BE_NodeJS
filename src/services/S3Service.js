@@ -22,4 +22,24 @@ const uploadFile = async (file) => {
   return Location;
 };
 
-module.exports = { uploadFile };
+const getPresignedUrl = async (fileName, fileType) => {
+  const extension = path.extname(fileName);
+  const key = `${process.env.AWS_S3_FOLDER || 'uploads'}/${crypto.randomUUID()}${extension}`;
+
+  const params = {
+    Bucket: process.env.AWS_BUCKET_NAME,
+    Key: key,
+    Expires: 300, // 5 minutes
+    ContentType: fileType,
+  };
+
+  const uploadUrl = await s3.getSignedUrlPromise('putObject', params);
+  
+  // Return both the upload URL and the final public URL
+  // Standard S3 URL format
+  const finalUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.amazonaws.com/${key}`;
+
+  return { uploadUrl, finalUrl };
+};
+
+module.exports = { uploadFile, getPresignedUrl };

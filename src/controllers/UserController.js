@@ -11,7 +11,7 @@ const getUser = async (req, res) => {
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     
     const { password, ...userWithoutPassword } = user;
-    res.json({ success: true, data: userWithoutPassword });
+    res.json({ success: true, data: { ...userWithoutPassword, _id: user.id } });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -30,7 +30,7 @@ const updateProfile = async (req, res) => {
     });
 
     const { password, ...userWithoutPassword } = user;
-    res.json({ success: true, message: 'Cập nhật thành công', data: userWithoutPassword });
+    res.json({ success: true, message: 'Cập nhật thành công', data: { ...userWithoutPassword, _id: user.id } });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -76,7 +76,7 @@ const getUsersByIds = async (req, res) => {
     
     const sanitizedUsers = users.map(u => {
       const { password, ...noPassword } = u;
-      return noPassword;
+      return { ...noPassword, _id: u.id };
     });
 
     res.json({ success: true, data: sanitizedUsers });
@@ -105,6 +105,7 @@ const searchUser = async (req, res) => {
       const status = await PresenceService.getUserStatus(user.id);
       results.push({
         id: user.id,
+        _id: user.id,
         email: user.email,
         fullName: user.fullName || user.email || 'User',
         avatarUrl: user.avatarUrl || '',
@@ -126,6 +127,7 @@ const getAllUsers = async (req, res) => {
       const { password, ...userWithoutPassword } = user;
       return {
         ...userWithoutPassword,
+        _id: user.id,
         status: status
       };
     }));
@@ -199,7 +201,7 @@ const updateUserRole = async (req, res) => {
     });
 
     const { password, ...userWithoutPassword } = user;
-    res.json({ success: true, message: 'Cập nhật quyền thành công', data: userWithoutPassword });
+    res.json({ success: true, message: 'Cập nhật quyền thành công', data: { ...userWithoutPassword, _id: user.id } });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -219,21 +221,6 @@ const deleteMe = async (req, res) => {
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
-};
-
-module.exports = {
-  getUser,
-  updateProfile,
-  changePassword,
-  getUsersByIds,
-  searchUser,
-  getAllUsers,
-  updatePushToken,
-  lockUser,
-  unlockUser,
-  deleteUser,
-  deleteMe,
-  updateUserRole,
 };
 
 module.exports = {

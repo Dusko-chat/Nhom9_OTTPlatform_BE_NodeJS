@@ -9,6 +9,8 @@ const { v4: uuidv4 } = require('uuid');
 const registerOtpSessions = new Map();
 const resetPasswordOtps = new Map();
 const resetPasswordOtpExpiry = new Map();
+const passwordChangeSessions = new Map();
+const deleteAccountSessions = new Map();
 
 const transporter = nodemailer.createTransport({
   host: process.env.MAIL_HOST,
@@ -17,6 +19,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.MAIL_USERNAME,
     pass: process.env.MAIL_APP_PASSWORD,
   },
+  connectionTimeout: 30000, // 30 seconds
+  greetingTimeout: 30000,
+  socketTimeout: 30000,
 });
 
 const generateOtp = () => {
@@ -27,21 +32,29 @@ const normalizeEmail = (email) => {
   return email ? email.trim().toLowerCase() : '';
 };
 
+// Check if email is already taken
+const checkEmailAvailability = async (email) => {
+  const normalized = normalizeEmail(email);
+  if (!normalized) throw new Error('Email không hợp lệ');
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
+  return { available: !user };
+};
+
 const requestRegisterOtp = async (userData) => {
   const email = normalizeEmail(userData.email);
   if (!email) throw new Error('Email không được để trống');
-  if (!userData.password) throw new Error('Mật khẩu không được để trống');
   
+  const availability = await checkEmailAvailability(email);
+  if (!availability.available) throw new Error('Email đã được sử dụng');
+
+  if (!userData.password) throw new Error('Mật khẩu không được để trống');
   const passwordError = validatePassword(userData.password);
   if (passwordError) throw new Error(passwordError);
 
   if (!userData.fullName) throw new Error('Họ và tên không được để trống');
 
-  const userExists = await prisma.user.findUnique({ where: { email } });
-  if (userExists) throw new Error('Email đã được sử dụng');
-
   const otp = generateOtp();
-  const expiresAt = Date.now() + parseInt(process.env.OTP_EXPIRY_MINUTES || 5) * 60000;
+  const expiresAt = Date.now() + 60000; // 1 minute
 
   const hashedPassword = await bcrypt.hash(userData.password, 10);
 
@@ -57,13 +70,13 @@ const requestRegisterOtp = async (userData) => {
     from: process.env.MAIL_USERNAME,
     to: email,
     subject: 'Mã OTP đăng ký OTT App',
-    text: `Mã OTP của bạn là: ${otp}`,
+    text: `Mã OTP của bạn là: ${otp}. Mã có hiệu lực trong 1 phút.`,
   });
 
   return {
     email,
     message: 'Đã gửi mã OTP xác thực đăng ký về email',
-    expiresInMinutes: process.env.OTP_EXPIRY_MINUTES,
+    expiresInSeconds: 60,
   };
 };
 
@@ -84,24 +97,23 @@ const verifyRegisterOtp = async (email, otp) => {
     throw new Error('Email đã được sử dụng');
   }
 
-  // Generate a MongoDB-like ID if it's a new user, or a simple unique string
-  // To keep it consistent with other IDs, we can use a UUID or similar
-  const user = await prisma.user.create({
-    data: {
-      id: uuidv4().replace(/-/g, '').substring(0, 24), // Mocking ObjectID-like string length
-      email: normalized,
-      password: session.password,
-      fullName: session.fullName,
-      phoneNumber: session.phoneNumber,
-    }
-  });
+  try {
+    const userId = uuidv4().replace(/-/g, '').substring(0, 24);
+    const user = await prisma.user.create({
+      data: {
+        id: userId,
+        email: normalized,
+        password: session.password,
+        fullName: session.fullName,
+        phoneNumber: session.phoneNumber,
+      }
+    });
 
-  registerOtpSessions.delete(normalized);
-
-  return {
-    userId: user.id,
-    message: 'Đăng ký thành công',
-  };
+    registerOtpSessions.delete(normalized);
+    return { userId: user.id, _id: user.id, message: 'Đăng ký thành công' };
+  } catch (err) {
+    throw err;
+  }
 };
 
 const login = async (emailOrPhone, password) => {
@@ -122,7 +134,6 @@ const login = async (emailOrPhone, password) => {
   if (!isMatch) throw new Error('Sai mật khẩu đăng nhập');
 
   const sessionId = crypto.randomUUID();
-  
   await prisma.user.update({
     where: { id: user.id },
     data: { currentSessionId: sessionId }
@@ -130,6 +141,7 @@ const login = async (emailOrPhone, password) => {
 
   return {
     userId: user.id,
+    _id: user.id,
     fullName: user.fullName,
     avatarUrl: user.avatarUrl,
     token: generateToken(user.id, user.role, sessionId),
@@ -143,7 +155,7 @@ const requestForgotPasswordOtp = async (email) => {
   if (!user) throw new Error('Email không tồn tại trong hệ thống');
 
   const otp = generateOtp();
-  const expiresAt = Date.now() + parseInt(process.env.OTP_EXPIRY_MINUTES || 5) * 60000;
+  const expiresAt = Date.now() + 60000; // 1 minute
 
   resetPasswordOtps.set(normalized, otp);
   resetPasswordOtpExpiry.set(normalized, expiresAt);
@@ -152,13 +164,10 @@ const requestForgotPasswordOtp = async (email) => {
     from: process.env.MAIL_USERNAME,
     to: normalized,
     subject: 'Mã OTP đặt lại mật khẩu OTT App',
-    text: `Mã OTP đặt lại mật khẩu của bạn là: ${otp}`,
+    text: `Mã OTP đặt lại mật khẩu của bạn là: ${otp}. Mã có hiệu lực trong 1 phút.`,
   });
 
-  return {
-    email: normalized,
-    message: 'Mã OTP đặt lại mật khẩu đã được gửi tới email',
-  };
+  return { email: normalized, message: 'Mã OTP đã được gửi tới email' };
 };
 
 const resetPasswordWithOtp = async (email, otp, newPassword) => {
@@ -177,20 +186,102 @@ const resetPasswordWithOtp = async (email, otp, newPassword) => {
   const passwordError = validatePassword(newPassword);
   if (passwordError) throw new Error(passwordError);
 
-  const user = await prisma.user.findUnique({ where: { email: normalized } });
-  if (!user) throw new Error('Người dùng không tồn tại');
-
   const hashedPassword = await bcrypt.hash(newPassword, 10);
-  
   await prisma.user.update({
-    where: { id: user.id },
+    where: { email: normalized },
     data: { password: hashedPassword }
   });
 
   resetPasswordOtps.delete(normalized);
   resetPasswordOtpExpiry.delete(normalized);
-
   return { success: true, message: 'Đặt lại mật khẩu thành công' };
+};
+
+// 2-Step Password Change for Logged In Users
+const requestPasswordChangeOtp = async (userId, currentPassword, newPassword) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error('Người dùng không tồn tại');
+
+  const isMatch = await bcrypt.compare(currentPassword, user.password);
+  if (!isMatch) throw new Error('Mật khẩu hiện tại không đúng');
+
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) throw new Error(passwordError);
+
+  const otp = generateOtp();
+  const expiresAt = Date.now() + 60000; // 1 minute
+  const newHashedPassword = await bcrypt.hash(newPassword, 10);
+
+  passwordChangeSessions.set(userId, { otp, expiresAt, newHashedPassword });
+
+  await transporter.sendMail({
+    from: process.env.MAIL_USERNAME,
+    to: user.email,
+    subject: 'Xác nhận thay đổi mật khẩu OTT App',
+    text: `Mã OTP xác nhận thay đổi mật khẩu của bạn là: ${otp}. Mã có hiệu lực trong 1 phút.`,
+  });
+
+  return { message: 'Mã OTP xác nhận đã được gửi tới email của bạn' };
+};
+
+const confirmPasswordChange = async (userId, otp) => {
+  const session = passwordChangeSessions.get(userId);
+  if (!session || Date.now() > session.expiresAt) {
+    passwordChangeSessions.delete(userId);
+    throw new Error('Mã OTP đã hết hạn hoặc không tồn tại');
+  }
+
+  if (session.otp !== otp) throw new Error('Mã OTP không chính xác');
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { password: session.newHashedPassword }
+  });
+
+  passwordChangeSessions.delete(userId);
+  return { success: true, message: 'Đổi mật khẩu thành công' };
+};
+
+// 2-Step Account Deletion
+const requestDeleteAccountOtp = async (userId, password) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error('Người dùng không tồn tại');
+
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) throw new Error('Mật khẩu không đúng');
+
+  const otp = generateOtp();
+  const expiresAt = Date.now() + 60000; // 1 minute
+
+  deleteAccountSessions.set(userId, { otp, expiresAt });
+
+  await transporter.sendMail({
+    from: process.env.MAIL_USERNAME,
+    to: user.email,
+    subject: 'Xác nhận xóa tài khoản OTT App',
+    text: `Mã OTP xác nhận xóa tài khoản của bạn là: ${otp}. Lưu ý: Hành động này không thể hoàn tác. Mã có hiệu lực trong 1 phút.`,
+  });
+
+  return { message: 'Mã OTP xác nhận xóa tài khoản đã được gửi tới email của bạn' };
+};
+
+const confirmDeleteAccount = async (userId, otp) => {
+  const session = deleteAccountSessions.get(userId);
+  if (!session || Date.now() > session.expiresAt) {
+    deleteAccountSessions.delete(userId);
+    throw new Error('Mã OTP đã hết hạn hoặc không tồn tại');
+  }
+
+  if (session.otp !== otp) throw new Error('Mã OTP không chính xác');
+
+  // Hard delete related data in MongoDB if necessary
+  const Department = require('../models/Department');
+  await Department.updateMany({ userIds: userId }, { $pull: { userIds: userId } });
+
+  await prisma.user.delete({ where: { id: userId } });
+
+  deleteAccountSessions.delete(userId);
+  return { success: true, message: 'Tài khoản của bạn đã được xóa vĩnh viễn' };
 };
 
 const logout = async (userId) => {
@@ -206,19 +297,15 @@ const logout = async (userId) => {
 };
 
 module.exports = {
+  checkEmailAvailability,
   requestRegisterOtp,
   verifyRegisterOtp,
   login,
   requestForgotPasswordOtp,
   resetPasswordWithOtp,
-  logout
-};
-
-module.exports = {
-  requestRegisterOtp,
-  verifyRegisterOtp,
-  login,
-  requestForgotPasswordOtp,
-  resetPasswordWithOtp,
+  requestPasswordChangeOtp,
+  confirmPasswordChange,
+  requestDeleteAccountOtp,
+  confirmDeleteAccount,
   logout
 };

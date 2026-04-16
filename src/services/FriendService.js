@@ -90,10 +90,15 @@ const unfriend = async (userId, friendId) => {
   });
 };
 
+const rejectRequest = async (requestId) => {
+  await FriendRequest.deleteOne({ _id: requestId, status: 'PENDING' });
+};
+
 module.exports = {
   sendRequest,
   getPendingRequests,
   acceptRequest,
+  rejectRequest,
   getFriends,
   unfriend,
 };

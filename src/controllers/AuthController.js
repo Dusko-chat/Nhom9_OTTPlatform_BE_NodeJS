@@ -80,5 +80,65 @@ module.exports = {
   login,
   requestForgotPasswordOtp,
   resetPasswordWithOtp,
+  resetPasswordWithOtp,
+  checkEmail,
+  requestPasswordChangeOtp,
+  confirmPasswordChange,
+  requestDeleteAccountOtp,
+  confirmDeleteAccount,
   logout,
 };
+
+async function checkEmail(req, res) {
+  try {
+    const { email } = req.body;
+    const result = await AuthService.checkEmailAvailability(email);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}
+
+async function requestPasswordChangeOtp(req, res) {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { currentPassword, newPassword } = req.body;
+    const result = await AuthService.requestPasswordChangeOtp(userId, currentPassword, newPassword);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}
+
+async function confirmPasswordChange(req, res) {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { otp } = req.body;
+    const result = await AuthService.confirmPasswordChange(userId, otp);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}
+
+async function requestDeleteAccountOtp(req, res) {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { password } = req.body;
+    const result = await AuthService.requestDeleteAccountOtp(userId, password);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}
+
+async function confirmDeleteAccount(req, res) {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { otp } = req.body;
+    const result = await AuthService.confirmDeleteAccount(userId, otp);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}

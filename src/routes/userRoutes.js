@@ -21,7 +21,6 @@ router.get('/all', protect, getAllUsers);
 router.get('/search', protect, searchUser);
 router.get('/:id', protect, getUser);
 router.put('/:id', protect, updateProfile);
-router.put('/:id/change-password', protect, changePassword);
 router.post('/list', protect, getUsersByIds);
 router.post('/:id/push-token', protect, updatePushToken);
 
@@ -31,8 +30,7 @@ router.put('/:id/unlock', protect, restrictTo('ADMIN', 'SUPER_ADMIN'), unlockUse
 router.put('/:id/role', protect, restrictTo('ADMIN', 'SUPER_ADMIN'), updateUserRole);
 router.delete('/:id', protect, restrictTo('ADMIN', 'SUPER_ADMIN'), deleteUser);
 
-// Self service
-router.delete('/me/delete', protect, deleteMe);
+module.exports = router;
 
 
 
