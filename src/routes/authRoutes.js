@@ -1,6 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const {
+  register,
+  requestRegisterOtp,
+  verifyRegisterOtp,
+  login,
+  requestForgotPasswordOtp,
   resetPasswordWithOtp,
   checkEmail,
   requestPasswordChangeOtp,
