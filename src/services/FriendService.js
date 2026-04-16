@@ -1,5 +1,5 @@
 const FriendRequest = require('../models/FriendRequest');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 const Notification = require('../models/Notification');
 
 const sendRequest = async (senderId, receiverId) => {
@@ -12,7 +12,7 @@ const sendRequest = async (senderId, receiverId) => {
 
   if (existing) return null;
 
-  const sender = await User.findById(senderId);
+  const sender = await prisma.user.findUnique({ where: { id: senderId } });
   const fr = await FriendRequest.create({
     senderId,
     receiverId,
@@ -21,7 +21,7 @@ const sendRequest = async (senderId, receiverId) => {
     senderAvatar: sender?.avatarUrl,
   });
 
-  // Create Notification in DB
+  // Create Notification in DB (MongoDB remains)
   await Notification.create({
     userId: receiverId,
     type: 'FRIEND_REQUEST',
@@ -43,8 +43,8 @@ const acceptRequest = async (requestId) => {
     fr.status = 'ACCEPTED';
     await fr.save();
 
-    // Create Notification for the sender
-    const receiver = await User.findById(fr.receiverId);
+    // Create Notification for the sender (MongoDB remains)
+    const receiver = await prisma.user.findUnique({ where: { id: fr.receiverId } });
     await Notification.create({
       userId: fr.senderId,
       type: 'SYSTEM',
@@ -70,8 +70,15 @@ const getFriends = async (userId) => {
     fr.senderId === userId ? fr.receiverId : fr.senderId
   );
 
-  const friends = await User.find({ _id: { $in: friendIds } }).select('-password');
-  return friends;
+  const friends = await prisma.user.findMany({
+    where: { id: { in: friendIds } }
+  });
+  
+  // Sanitize password
+  return friends.map(f => {
+    const { password, ...fNoPass } = f;
+    return fNoPass;
+  });
 };
 
 const unfriend = async (userId, friendId) => {

@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 
 const protect = async (req, res, next) => {
   let token;
@@ -13,7 +13,10 @@ const protect = async (req, res, next) => {
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      const user = await User.findById(decoded.id).select('-password');
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id }
+      });
+
       if (!user) {
         return res.status(401).json({ success: false, message: 'User not found' });
       }
@@ -23,7 +26,9 @@ const protect = async (req, res, next) => {
         return res.status(401).json({ success: false, message: 'SESSION_EXPIRED', detail: 'Tài khoản đã đăng nhập ở thiết bị khác' });
       }
 
-      req.user = user;
+      // Remove password from the request user object
+      const { password, ...userWithoutPassword } = user;
+      req.user = userWithoutPassword;
       next();
     } catch (error) {
       console.error(error);

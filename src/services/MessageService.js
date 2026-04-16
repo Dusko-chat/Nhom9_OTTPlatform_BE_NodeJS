@@ -1,6 +1,6 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 
 const saveMessage = async (messageData) => {
   const message = await Message.create(messageData);
@@ -21,22 +21,41 @@ const getMessagesByConversationId = async (conversationId, userId) => {
     messages = messages.filter((m) => m.createdAt > deleteAt);
   }
 
-  // Fill user info
-  for (let msg of messages) {
-    if (msg.senderId === 'SYSTEM') {
-        if (!msg.senderName) msg.senderName = 'Hệ thống';
-        continue;
+  // 1. Collect sender IDs for batch fetching
+  const senderIds = new Set();
+  messages.forEach(msg => {
+    if (msg.senderId !== 'SYSTEM' && (!msg.senderName || !msg.senderAvatar)) {
+      senderIds.add(msg.senderId);
     }
-    if (!msg.senderName || !msg.senderAvatar) {
-      const user = await User.findById(msg.senderId);
+  });
+
+  // 2. Batch fetch user data from PostgreSQL
+  const users = await prisma.user.findMany({
+    where: { id: { in: Array.from(senderIds) } },
+    select: { id: true, fullName: true, avatarUrl: true }
+  });
+
+  const userMap = users.reduce((acc, u) => {
+    acc[u.id] = u;
+    return acc;
+  }, {});
+
+  // 3. Fill user info
+  const resultMessages = messages.map(msg => {
+    const msgObj = msg.toObject();
+    if (msg.senderId === 'SYSTEM') {
+      if (!msgObj.senderName) msgObj.senderName = 'Hệ thống';
+    } else {
+      const user = userMap[msg.senderId];
       if (user) {
-        if (!msg.senderName) msg.senderName = user.fullName;
-        if (!msg.senderAvatar) msg.senderAvatar = user.avatarUrl;
+        if (!msgObj.senderName) msgObj.senderName = user.fullName;
+        if (!msgObj.senderAvatar) msgObj.senderAvatar = user.avatarUrl;
       }
     }
-  }
+    return msgObj;
+  });
 
-  return messages;
+  return resultMessages;
 };
 
 const clearHistoryForUser = async (conversationId, userId) => {
@@ -79,18 +98,29 @@ const getPollDetails = async (messageId) => {
   const message = await Message.findById(messageId);
   if (!message || message.type !== 'POLL') throw new Error('Poll not found');
 
-  const pollOptions = [];
-  for (let opt of message.pollData.options) {
-    const voters = [];
-    for (let vId of opt.voters) {
-      const u = await User.findById(vId).select('fullName avatarUrl _id');
-      if (u) voters.push(u);
-    }
-    pollOptions.push({
+  // Collect all unique voter IDs
+  const allVotersSet = new Set();
+  message.pollData.options.forEach(opt => {
+    opt.voters.forEach(vId => allVotersSet.add(vId));
+  });
+
+  // Batch fetch voters from PostgreSQL
+  const users = await prisma.user.findMany({
+    where: { id: { in: Array.from(allVotersSet) } },
+    select: { id: true, fullName: true, avatarUrl: true }
+  });
+
+  const userMap = users.reduce((acc, u) => {
+    acc[u.id] = u;
+    return acc;
+  }, {});
+
+  const pollOptions = message.pollData.options.map(opt => {
+    return {
       text: opt.text,
-      voters
-    });
-  }
+      voters: opt.voters.map(vId => userMap[vId]).filter(u => !!u)
+    };
+  });
 
   return {
     question: message.pollData.question,

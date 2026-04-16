@@ -3,7 +3,7 @@ const MessageService = require('../services/MessageService');
 const ConversationService = require('../services/ConversationService');
 const PresenceService = require('../services/PresenceService');
 const CallService = require('../services/CallService');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 
 const subscriptions = new Map(); // socketId -> Map(subId -> destination)
 const sockets = new Map(); // socketId -> socket
@@ -64,7 +64,21 @@ const setupStompSocket = (wss) => {
             const token = auth.substring(7);
             try {
               const decoded = jwt.verify(token, process.env.JWT_SECRET);
-              socket.userId = decoded.userId || decoded.id;
+              const userId = decoded.userId || decoded.id;
+              
+              // Verify user exists in database
+              const user = await prisma.user.findUnique({
+                where: { id: userId }
+              });
+
+              if (!user) {
+                console.error(`STOMP Auth failed: User ${userId} not found in database`);
+                socket.send(buildFrame('ERROR', { message: 'USER_NOT_FOUND' }, 'Người dùng không tồn tại trong hệ thống.'));
+                setTimeout(() => socket.close(), 100);
+                return;
+              }
+
+              socket.userId = userId;
               socket.sessionId = decoded.sessionId;
               
               console.log(`STOMP User Authenticated: ${socket.userId} (Session: ${socket.sessionId})`);
@@ -81,6 +95,9 @@ const setupStompSocket = (wss) => {
               await PresenceService.setOnline(socket.userId, broadcastPresence);
             } catch (e) {
               console.error('STOMP Auth failed:', e.message);
+              socket.send(buildFrame('ERROR', { message: 'INVALID_TOKEN' }, 'Phiên làm việc không hợp lệ.'));
+              setTimeout(() => socket.close(), 100);
+              return;
             }
           }
           socket.send(buildFrame('CONNECTED', { version: '1.2' }));
@@ -137,7 +154,9 @@ const setupStompSocket = (wss) => {
                 try {
                    const conv = await ConversationService.getConversationById(conversationId);
                    if (conv && conv.isGroup) {
-                      const user = await User.findById(socket.userId);
+                      const user = await prisma.user.findUnique({
+                        where: { id: socket.userId }
+                      });
                       const userName = user ? user.fullName : 'Thành viên';
                       const joinMsg = {
                          conversationId,
@@ -310,7 +329,9 @@ const handleChatMessage = async (chatMessage) => {
   // Augment missing sender info
   if (senderId !== 'SYSTEM' && (!senderName || !senderAvatar)) {
     try {
-      const user = await User.findById(senderId);
+      const user = await prisma.user.findUnique({
+        where: { id: senderId }
+      });
       if (user) {
         senderName = senderName || user.fullName;
         senderAvatar = senderAvatar || user.avatarUrl;

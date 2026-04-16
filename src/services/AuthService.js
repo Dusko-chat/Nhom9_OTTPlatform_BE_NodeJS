@@ -1,9 +1,10 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 const { generateToken } = require('../utils/jwtUtils');
 const nodemailer = require('nodemailer');
 const { validatePassword } = require('../utils/validationUtils');
+const { v4: uuidv4 } = require('uuid');
 
 const registerOtpSessions = new Map();
 const resetPasswordOtps = new Map();
@@ -36,7 +37,7 @@ const requestRegisterOtp = async (userData) => {
 
   if (!userData.fullName) throw new Error('Họ và tên không được để trống');
 
-  const userExists = await User.findOne({ email });
+  const userExists = await prisma.user.findUnique({ where: { email } });
   if (userExists) throw new Error('Email đã được sử dụng');
 
   const otp = generateOtp();
@@ -77,56 +78,68 @@ const verifyRegisterOtp = async (email, otp) => {
   }
   if (session.otp !== otp) throw new Error('Mã OTP không đúng');
 
-  const userExists = await User.findOne({ email: normalized });
+  const userExists = await prisma.user.findUnique({ where: { email: normalized } });
   if (userExists) {
     registerOtpSessions.delete(normalized);
     throw new Error('Email đã được sử dụng');
   }
 
-  const user = await User.create({
-    email: normalized,
-    password: session.password,
-    fullName: session.fullName,
-    phoneNumber: session.phoneNumber,
+  // Generate a MongoDB-like ID if it's a new user, or a simple unique string
+  // To keep it consistent with other IDs, we can use a UUID or similar
+  const user = await prisma.user.create({
+    data: {
+      id: uuidv4().replace(/-/g, '').substring(0, 24), // Mocking ObjectID-like string length
+      email: normalized,
+      password: session.password,
+      fullName: session.fullName,
+      phoneNumber: session.phoneNumber,
+    }
   });
 
   registerOtpSessions.delete(normalized);
 
   return {
-    userId: user._id,
+    userId: user.id,
     message: 'Đăng ký thành công',
   };
 };
 
 const login = async (emailOrPhone, password) => {
-  const user = await User.findOne({
-    $or: [{ email: normalizeEmail(emailOrPhone) }, { phoneNumber: emailOrPhone }],
+  const normalizedEmail = normalizeEmail(emailOrPhone);
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: normalizedEmail },
+        { phoneNumber: emailOrPhone }
+      ]
+    }
   });
 
   if (!user) throw new Error('Sai thông tin đăng nhập');
   if (user.isLocked) throw new Error('Tài khoản của bạn đã bị khóa bởi quản trị viên');
 
-
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) throw new Error('Sai mật khẩu đăng nhập');
 
   const sessionId = crypto.randomUUID();
-  user.currentSessionId = sessionId;
-  await user.save();
+  
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { currentSessionId: sessionId }
+  });
 
   return {
-    userId: user._id,
+    userId: user.id,
     fullName: user.fullName,
     avatarUrl: user.avatarUrl,
-    token: generateToken(user._id, user.role, sessionId),
+    token: generateToken(user.id, user.role, sessionId),
     role: user.role,
-
   };
 };
 
 const requestForgotPasswordOtp = async (email) => {
   const normalized = normalizeEmail(email);
-  const user = await User.findOne({ email: normalized });
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
   if (!user) throw new Error('Email không tồn tại trong hệ thống');
 
   const otp = generateOtp();
@@ -164,11 +177,15 @@ const resetPasswordWithOtp = async (email, otp, newPassword) => {
   const passwordError = validatePassword(newPassword);
   if (passwordError) throw new Error(passwordError);
 
-  const user = await User.findOne({ email: normalized });
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
   if (!user) throw new Error('Người dùng không tồn tại');
 
-  user.password = await bcrypt.hash(newPassword, 10);
-  await user.save();
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { password: hashedPassword }
+  });
 
   resetPasswordOtps.delete(normalized);
   resetPasswordOtpExpiry.delete(normalized);
@@ -177,12 +194,24 @@ const resetPasswordWithOtp = async (email, otp, newPassword) => {
 };
 
 const logout = async (userId) => {
-  const user = await User.findById(userId);
-  if (user) {
-    user.currentSessionId = null;
-    await user.save();
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { currentSessionId: null }
+    });
+    return { success: true };
+  } catch (error) {
+    return { success: false };
   }
-  return { success: true };
+};
+
+module.exports = {
+  requestRegisterOtp,
+  verifyRegisterOtp,
+  login,
+  requestForgotPasswordOtp,
+  resetPasswordWithOtp,
+  logout
 };
 
 module.exports = {

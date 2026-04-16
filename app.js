@@ -38,8 +38,17 @@ setupStompSocket(wss);
 connectDB();
 
 // Middleware
-app.use(cors());
+// CORS Configuration - Cho phép tất cả để Mobile/Web đều vào được
+app.use(cors({
+  origin: true, // Cho phép mọi origin gửi request đến
+  credentials: true
+}));
 app.use(express.json());
+
+// Health check
+app.get('/api/status/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -55,6 +64,10 @@ app.use('/api/status', statusRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/attendance', attendanceRoutes);
+
+app.get('/api/status/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
 app.get('/', (req, res) => {
   res.send('OTT Backend Node.js is running...');

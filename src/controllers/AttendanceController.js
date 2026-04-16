@@ -1,7 +1,7 @@
 const Attendance = require('../models/Attendance');
 const Office = require('../models/Office');
 const ExcelJS = require('exceljs');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 
 // Haversine formula to calculate distance between two points in meters
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -83,9 +83,27 @@ exports.getHistory = async (req, res) => {
 
 exports.getAllHistory = async (req, res) => {
   try {
-    // Admin only logic should be in middleware, but for now...
-    const history = await Attendance.find().populate('userId', 'fullName email').sort({ timestamp: -1 });
-    res.json({ success: true, data: history });
+    const history = await Attendance.find().sort({ timestamp: -1 });
+    
+    // Manual join for userId (which is now in PostgreSQL)
+    const userIds = [...new Set(history.map(item => item.userId))];
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, fullName: true, email: true }
+    });
+
+    const userMap = users.reduce((acc, user) => {
+      acc[user.id] = user;
+      return acc;
+    }, {});
+
+    const historyWithUsers = history.map(item => {
+      const itemObj = item.toObject();
+      itemObj.userId = userMap[item.userId] || { fullName: 'Unknown', email: 'N/A' };
+      return itemObj;
+    });
+
+    res.json({ success: true, data: historyWithUsers });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -94,7 +112,9 @@ exports.getAllHistory = async (req, res) => {
 exports.exportAttendanceToExcel = async (req, res) => {
   try {
     const { userId } = req.params;
-    const user = await User.findById(userId);
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
     if (!user) return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng' });
 
     const history = await Attendance.find({ userId }).sort({ timestamp: 1 });
@@ -142,7 +162,7 @@ exports.exportAttendanceToExcel = async (req, res) => {
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     );
-    // Safe filename: Remove accents and special chars for header safety
+    // Safe filename
     const rawName = (user.fullName || 'User').toString();
     const safeFileName = rawName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_').replace(/[^\w.-]/g, '');
     
@@ -168,15 +188,15 @@ exports.exportBulkAttendance = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Danh sách người dùng không hợp lệ' });
     }
 
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } }
+    });
+
     const workbook = new ExcelJS.Workbook();
 
-    for (const userId of userIds) {
-      const user = await User.findById(userId);
-      if (!user) continue;
-
-      const history = await Attendance.find({ userId }).sort({ timestamp: 1 });
+    for (const user of users) {
+      const history = await Attendance.find({ userId: user.id }).sort({ timestamp: 1 });
       
-      // Limit sheet name to 31 chars (Excel requirement)
       const sheetName = (user.fullName || 'User').substring(0, 31);
       const worksheet = workbook.addWorksheet(sheetName);
 

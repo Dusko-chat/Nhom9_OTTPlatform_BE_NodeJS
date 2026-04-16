@@ -1,5 +1,5 @@
 const Conversation = require('../models/Conversation');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 
 const createGroup = async (name, adminId, memberIds) => {
   if (!memberIds.includes(adminId)) {
@@ -28,7 +28,10 @@ const startDirectConversation = async (user1Id, user2Id) => {
   }
 
   // Add virtual fields for frontend
-  const otherUser = await User.findById(user2Id);
+  const otherUser = await prisma.user.findUnique({
+    where: { id: user2Id }
+  });
+  
   if (otherUser) {
     const convObj = conv.toObject();
     convObj.name = otherUser.fullName;
@@ -41,20 +44,40 @@ const startDirectConversation = async (user1Id, user2Id) => {
 
 const getUserConversations = async (userId) => {
   const convs = await Conversation.find({ memberIds: userId });
+  
+  // 1. Collect other user IDs for batch fetching
+  const otherUserIds = new Set();
+  convs.forEach(conv => {
+    if (!conv.isGroup) {
+      const otherId = conv.memberIds.find(id => id !== userId);
+      if (otherId) otherUserIds.add(otherId);
+    }
+  });
+
+  // 2. Batch fetch user data from PostgreSQL
+  const users = await prisma.user.findMany({
+    where: { id: { in: Array.from(otherUserIds) } },
+    select: { id: true, fullName: true, avatarUrl: true }
+  });
+  
+  const userMap = users.reduce((acc, u) => {
+    acc[u.id] = u;
+    return acc;
+  }, {});
+
   const result = [];
 
   for (let conv of convs) {
     let convObj = conv.toObject();
     if (!conv.isGroup) {
       const otherId = conv.memberIds.find((id) => id !== userId);
-      if (otherId) {
-        const otherUser = await User.findById(otherId);
-        if (otherUser) {
-          convObj.name = otherUser.fullName;
-          convObj.avatarUrl = otherUser.avatarUrl;
-        }
+      const otherUser = userMap[otherId];
+      if (otherUser) {
+        convObj.name = otherUser.fullName;
+        convObj.avatarUrl = otherUser.avatarUrl;
       }
     }
+    
     // Convert Map to plain Object and filter deleted
     if (convObj.unreadCounts && typeof convObj.unreadCounts.toJSON === 'function') {
         convObj.unreadCounts = convObj.unreadCounts.toJSON();

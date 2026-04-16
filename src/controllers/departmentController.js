@@ -1,5 +1,5 @@
 const Department = require('../models/Department');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 
 exports.getAllDepartments = async (req, res) => {
   try {
@@ -40,21 +40,25 @@ exports.assignUser = async (req, res) => {
     const department = await Department.findById(deptId);
     if (!department) return res.status(404).json({ success: false, message: 'Department not found' });
 
-    const user = await User.findById(userId);
+    const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    // 1. Remove user from any existing departments (Ensure "one person, one department")
+    // 1. Remove user from any existing departments in MongoDB (Ensure "one person, one department")
     await Department.updateMany(
       { userIds: userId },
       { $pull: { userIds: userId } }
     );
 
-    // 2. Update user's info
-    user.departmentId = deptId;
-    user.jobTitle = jobTitle || user.jobTitle;
-    await user.save();
+    // 2. Update user's info in PostgreSQL
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        departmentId: deptId,
+        jobTitle: jobTitle || user.jobTitle
+      }
+    });
 
-    // 3. Add user to the new department's userIds list
+    // 3. Add user to the new department's userIds list in MongoDB
     if (!department.userIds.includes(userId)) {
       department.userIds.push(userId);
       await department.save();
@@ -70,13 +74,16 @@ exports.deleteDepartment = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1. Clear departmentId for all users in this department
-    await User.updateMany({ departmentId: id }, { $set: { departmentId: null } });
+    // 1. Clear departmentId for all users in this department in PostgreSQL
+    await prisma.user.updateMany({
+      where: { departmentId: id },
+      data: { departmentId: null }
+    });
 
-    // 2. Clear parentId for its sub-departments (convert them to top-level)
+    // 2. Clear parentId for its sub-departments in MongoDB
     await Department.updateMany({ parentId: id }, { $set: { parentId: null } });
 
-    // 3. Delete the department itself
+    // 3. Delete the department itself in MongoDB
     const result = await Department.findByIdAndDelete(id);
     if (!result) return res.status(404).json({ success: false, message: 'Department not found' });
 

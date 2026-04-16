@@ -1,4 +1,4 @@
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 const Message = require('../models/Message');
 const Notification = require('../models/Notification');
 const PresenceService = require('../services/PresenceService');
@@ -6,13 +6,15 @@ const { broadcastToDestination } = require('../sockets/stompHandler');
 
 exports.getOverviewStats = async (req, res) => {
   try {
-    const totalUsers = await User.countDocuments();
+    const totalUsers = await prisma.user.count();
     const totalMessages = await Message.countDocuments();
-    const lockedUsers = await User.countDocuments({ isLocked: true });
+    const lockedUsers = await prisma.user.count({ where: { isLocked: true } });
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
-    const newUsersToday = await User.countDocuments({ createdAt: { $gte: startOfToday } });
+    const newUsersToday = await prisma.user.count({
+      where: { createdAt: { gte: startOfToday } }
+    });
 
     const activeUsers = await PresenceService.getActiveUserCount();
 
@@ -76,9 +78,9 @@ exports.sendAnnouncement = async (req, res) => {
     broadcastToDestination('/topic/messages', announcement);
 
     // 2. Create Persistent Notifications for ALL users
-    const allUsers = await User.find({}, '_id');
+    const allUsers = await prisma.user.findMany({ select: { id: true } });
     const notificationData = allUsers.map(user => ({
-      userId: user._id.toString(),
+      userId: user.id,
       type: 'SYSTEM',
       title: 'Thông báo hệ thống',
       content: content,
@@ -89,7 +91,7 @@ exports.sendAnnouncement = async (req, res) => {
 
     // 3. Optional: Broadcast to individual notification topics for real-time alert counts
     allUsers.forEach(user => {
-      broadcastToDestination(`/topic/notifications/${user._id.toString()}`, {
+      broadcastToDestination(`/topic/notifications/${user.id}`, {
         type: 'NEW_NOTIFICATION',
         title: 'Thông báo hệ thống',
         content: content

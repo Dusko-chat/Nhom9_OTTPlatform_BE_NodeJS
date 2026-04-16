@@ -1,12 +1,17 @@
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 const bcrypt = require('bcryptjs');
 const { validatePassword } = require('../utils/validationUtils');
+const PresenceService = require('../services/PresenceService');
 
 const getUser = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id }
+    });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    res.json({ success: true, data: user });
+    
+    const { password, ...userWithoutPassword } = user;
+    res.json({ success: true, data: userWithoutPassword });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -14,18 +19,18 @@ const getUser = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    const data = {};
+    if (req.body.fullName) data.fullName = req.body.fullName;
+    if (req.body.phoneNumber) data.phoneNumber = req.body.phoneNumber;
+    if (req.body.avatarUrl) data.avatarUrl = req.body.avatarUrl;
 
-    user.fullName = req.body.fullName || user.fullName;
-    user.phoneNumber = req.body.phoneNumber || user.phoneNumber;
-    if (req.body.avatarUrl) {
-      user.avatarUrl = req.body.avatarUrl;
-    }
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: data
+    });
 
-    await user.save();
-    user.password = undefined;
-    res.json({ success: true, message: 'Cập nhật thành công', data: user });
+    const { password, ...userWithoutPassword } = user;
+    res.json({ success: true, message: 'Cập nhật thành công', data: userWithoutPassword });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -42,14 +47,19 @@ const changePassword = async (req, res) => {
 
     if (newPassword !== confirmPassword) return res.status(400).json({ success: false, message: 'Mật khẩu mới và xác nhận mật khẩu không khớp' });
 
-    const user = await User.findById(req.params.id);
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id }
+    });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) return res.status(400).json({ success: false, message: 'Mật khẩu hiện tại không đúng' });
 
-    user.password = await bcrypt.hash(newPassword, 10);
-    await user.save();
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: req.params.id },
+      data: { password: hashedPassword }
+    });
 
     res.json({ success: true, message: 'Đổi mật khẩu thành công' });
   } catch (error) {
@@ -59,14 +69,21 @@ const changePassword = async (req, res) => {
 
 const getUsersByIds = async (req, res) => {
   try {
-    const users = await User.find({ _id: { $in: req.body } }).select('-password');
-    res.json({ success: true, data: users });
+    const ids = req.body;
+    const users = await prisma.user.findMany({
+      where: { id: { in: ids } }
+    });
+    
+    const sanitizedUsers = users.map(u => {
+      const { password, ...noPassword } = u;
+      return noPassword;
+    });
+
+    res.json({ success: true, data: sanitizedUsers });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
 };
-
-const PresenceService = require('../services/PresenceService');
 
 const searchUser = async (req, res) => {
   try {
@@ -74,16 +91,20 @@ const searchUser = async (req, res) => {
     if (!query) return res.json({ success: true, data: [] });
 
     const searchTerm = query.trim();
-    let user = await User.findOne({ email: searchTerm }).select('email fullName avatarUrl status');
-    if (!user) {
-      user = await User.findOne({ phoneNumber: searchTerm }).select('email fullName avatarUrl status');
-    }
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: searchTerm },
+          { phoneNumber: searchTerm }
+        ]
+      }
+    });
 
     const results = [];
     if (user) {
-      const status = await PresenceService.getUserStatus(user._id);
+      const status = await PresenceService.getUserStatus(user.id);
       results.push({
-        id: user._id,
+        id: user.id,
         email: user.email,
         fullName: user.fullName || user.email || 'User',
         avatarUrl: user.avatarUrl || '',
@@ -99,11 +120,12 @@ const searchUser = async (req, res) => {
 
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password');
+    const users = await prisma.user.findMany();
     const usersWithStatus = await Promise.all(users.map(async (user) => {
-      const status = await PresenceService.getUserStatus(user._id);
+      const status = await PresenceService.getUserStatus(user.id);
+      const { password, ...userWithoutPassword } = user;
       return {
-        ...user.toJSON(),
+        ...userWithoutPassword,
         status: status
       };
     }));
@@ -116,7 +138,10 @@ const getAllUsers = async (req, res) => {
 const updatePushToken = async (req, res) => {
   try {
     const { token } = req.body;
-    await User.findByIdAndUpdate(req.params.id, { pushToken: token });
+    await prisma.user.update({
+      where: { id: req.params.id },
+      data: { pushToken: token }
+    });
     res.json({ success: true, message: 'Cập nhật Push Token thành công' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -125,7 +150,10 @@ const updatePushToken = async (req, res) => {
 
 const lockUser = async (req, res) => {
   try {
-    await User.findByIdAndUpdate(req.params.id, { isLocked: true });
+    await prisma.user.update({
+      where: { id: req.params.id },
+      data: { isLocked: true }
+    });
     res.json({ success: true, message: 'Khóa tài khoản thành công' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -134,7 +162,10 @@ const lockUser = async (req, res) => {
 
 const unlockUser = async (req, res) => {
   try {
-    await User.findByIdAndUpdate(req.params.id, { isLocked: false });
+    await prisma.user.update({
+      where: { id: req.params.id },
+      data: { isLocked: false }
+    });
     res.json({ success: true, message: 'Mở khóa tài khoản thành công' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -144,11 +175,13 @@ const unlockUser = async (req, res) => {
 const deleteUser = async (req, res) => {
   try {
     const userId = req.params.id;
-    // Cleanup department references
+    // Cleanup department references in MongoDB
     const Department = require('../models/Department');
     await Department.updateMany({ userIds: userId }, { $pull: { userIds: userId } });
     
-    await User.findByIdAndDelete(userId);
+    await prisma.user.delete({
+      where: { id: userId }
+    });
     res.json({ success: true, message: 'Xóa tài khoản thành công' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -158,22 +191,15 @@ const deleteUser = async (req, res) => {
 const updateUserRole = async (req, res) => {
   try {
     const { role: newRole } = req.body;
-    const allowedRoles = ['USER', 'MANAGER'];
+    const allowedRoles = ['GUEST', 'MEMBER', 'MANAGER']; // Adjusted if needed
 
-    if (!allowedRoles.includes(newRole)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Không thể chuyển đổi sang quyền này (Admin/Super Admin) thông qua giao diện.' 
-      });
-    }
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { role: newRole }
+    });
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id, 
-      { role: newRole }, 
-      { new: true }
-    ).select('-password');
-
-    res.json({ success: true, message: 'Cập nhật quyền thành công', data: user });
+    const { password, ...userWithoutPassword } = user;
+    res.json({ success: true, message: 'Cập nhật quyền thành công', data: userWithoutPassword });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -182,15 +208,32 @@ const updateUserRole = async (req, res) => {
 const deleteMe = async (req, res) => {
   try {
     const userId = req.user.id;
-    // Cleanup department references
+    // Cleanup department references in MongoDB
     const Department = require('../models/Department');
     await Department.updateMany({ userIds: userId }, { $pull: { userIds: userId } });
     
-    await User.findByIdAndDelete(userId);
+    await prisma.user.delete({
+      where: { id: userId }
+    });
     res.json({ success: true, message: 'Tài khoản của bạn đã được xóa vĩnh viễn' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
+};
+
+module.exports = {
+  getUser,
+  updateProfile,
+  changePassword,
+  getUsersByIds,
+  searchUser,
+  getAllUsers,
+  updatePushToken,
+  lockUser,
+  unlockUser,
+  deleteUser,
+  deleteMe,
+  updateUserRole,
 };
 
 module.exports = {
