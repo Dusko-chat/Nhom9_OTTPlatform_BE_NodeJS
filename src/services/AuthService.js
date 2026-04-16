@@ -247,6 +247,7 @@ const confirmLockAccount = async (userId, otp, req) => {
       data: { 
         isLocked: true, 
         lockReason: 'USER', 
+        lockDescription: 'Khóa theo yêu cầu của người dùng',
         lockedAt: new Date(),
         currentSessionId: null 
       }
@@ -488,27 +489,67 @@ const autoLockAccount = async (userId, violationType, metadata = {}) => {
   if (!user) return;
 
   const newAutoLockCount = (user.autoLockCount || 0) + 1;
+  const reason = metadata.reason || (violationType === 'SPAM' ? 'Phát hiện spam liên tục' : 'Vi phạm quy tắc cộng đồng');
   
   await prisma.user.update({
     where: { id: userId },
     data: {
       isLocked: true,
       lockReason: 'AUTO',
+      lockDescription: reason,
       lockedAt: new Date(),
       autoLockCount: newAutoLockCount,
       currentSessionId: null
     }
   });
 
-  // Log the event
+  // Create an automated SECURITY report in MongoDB
+  try {
+    const Report = require('../models/Report');
+    const newReport = await Report.create({
+        userId: userId,
+        title: `[HỆ THỐNG] Khóa tài khoản: ${user.fullName}`,
+        description: `Tài khoản bị hệ thống tự động khóa do đạt giới hạn vi phạm. Lý do: ${reason}. Lần khóa thứ: ${newAutoLockCount}`,
+        type: 'SECURITY',
+        status: 'PENDING'
+    });
+
+    // Notify all admins via WebSocket
+    await notifyAdminsOfSecurityEvent({
+        eventType: 'NEW_REPORT',
+        ...newReport.toObject(),
+        _id: newReport._id.toString()
+    });
+  } catch (err) {
+    console.error('[AuthService] Failed to create security report:', err);
+  }
+
+  // Log the event in SecurityLog
   await logSecurityEvent(userId, 'AUTO_LOCK_VIOLATION', null, {
     violationType,
     autoLockCount: newAutoLockCount,
+    reason,
     ...metadata
   });
 
   // Force logout
-  stompHandler.forceLogoutAllSessions(userId, `Tài khoản của bạn đã bị khóa tự động do vi phạm: ${metadata.reason || violationType}.`);
+  stompHandler.forceLogoutAllSessions(userId, `Tài khoản của bạn đã bị khóa tự động do vi phạm: ${reason}.`);
+};
+
+const notifyAdminsOfSecurityEvent = async (eventData) => {
+    try {
+        const admins = await prisma.user.findMany({
+            where: {
+                role: { in: ['ADMIN', 'SUPER_ADMIN'] }
+            }
+        });
+
+        admins.forEach(admin => {
+            stompHandler.broadcastToDestination(`/topic/admin/reports`, eventData);
+        });
+    } catch (err) {
+        console.error('[AuthService] Failed to notify admins:', err);
+    }
 };
 
 const logout = async (userId) => {

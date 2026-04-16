@@ -5,7 +5,7 @@ const reportSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, required: true },
   status: { type: String, enum: ['PENDING', 'RESOLVED'], default: 'PENDING' },
-  type: { type: String, enum: ['BUG', 'SUGGESTION', 'OTHER'], default: 'BUG' },
+  type: { type: String, enum: ['BUG', 'SUGGESTION', 'SECURITY', 'OTHER'], default: 'BUG' },
   adminReply: { type: String },
   resolvedAt: { type: Date }
 }, { timestamps: true });

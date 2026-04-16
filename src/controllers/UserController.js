@@ -152,10 +152,20 @@ const updatePushToken = async (req, res) => {
 
 const lockUser = async (req, res) => {
   try {
+    const { reason } = req.body;
     await prisma.user.update({
       where: { id: req.params.id },
-      data: { isLocked: true }
+      data: { 
+        isLocked: true,
+        lockReason: 'ADMIN',
+        lockDescription: reason || 'Bị khóa bởi Quản trị viên'
+      }
     });
+
+    // Notify user via socket
+    const stompHandler = require('../sockets/stompHandler');
+    stompHandler.forceLogoutAllSessions(req.params.id, `Tài khoản đã bị khóa bởi Quản trị viên. Lý do: ${reason || 'Không xác định'}`);
+
     res.json({ success: true, message: 'Khóa tài khoản thành công' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -166,7 +176,12 @@ const unlockUser = async (req, res) => {
   try {
     await prisma.user.update({
       where: { id: req.params.id },
-      data: { isLocked: false }
+      data: { 
+        isLocked: false,
+        lockReason: null,
+        lockDescription: null,
+        lockedAt: null
+      }
     });
     res.json({ success: true, message: 'Mở khóa tài khoản thành công' });
   } catch (error) {
