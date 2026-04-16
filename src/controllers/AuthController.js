@@ -35,6 +35,17 @@ const login = async (req, res) => {
     const result = await AuthService.login(email, password);
     res.json({ success: true, data: result });
   } catch (error) {
+    if (error.isLocked) {
+      return res.status(403).json({ 
+        success: false, 
+        message: error.message,
+        data: {
+          lockReason: error.lockReason,
+          lockedAt: error.lockedAt,
+          remainingCooldown: error.remainingCooldown
+        }
+      });
+    }
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -61,7 +72,7 @@ const resetPasswordWithOtp = async (req, res) => {
 
 const logout = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.id || req.user._id;
     const result = await AuthService.logout(userId);
     
     // Broadcast logout to all sockets for this user
@@ -80,13 +91,16 @@ module.exports = {
   login,
   requestForgotPasswordOtp,
   resetPasswordWithOtp,
-  resetPasswordWithOtp,
   checkEmail,
   checkPhone,
   requestPasswordChangeOtp,
   confirmPasswordChange,
   requestDeleteAccountOtp,
   confirmDeleteAccount,
+  requestLockAccountOtp,
+  confirmLockAccount,
+  requestUnlockOtp,
+  confirmUnlock,
   logout,
 };
 
@@ -148,6 +162,57 @@ async function confirmDeleteAccount(req, res) {
     const userId = req.user.id || req.user._id;
     const { otp } = req.body;
     const result = await AuthService.confirmDeleteAccount(userId, otp);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}
+
+async function requestLockAccountOtp(req, res) {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { password } = req.body;
+    const result = await AuthService.requestLockAccountOtp(userId, password, req);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}
+
+async function confirmLockAccount(req, res) {
+  try {
+    const userId = req.user.id || req.user._id;
+    const { otp } = req.body;
+    const result = await AuthService.confirmLockAccount(userId, otp, req);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}
+
+async function requestUnlockOtp(req, res) {
+  try {
+    const { email, password } = req.body;
+    const result = await AuthService.requestUnlockOtp(email, password, req);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    const status = error.isLocked ? 403 : 400;
+    res.status(status).json({ 
+      success: false, 
+      message: error.message,
+      data: error.isLocked ? {
+        lockReason: error.lockReason,
+        lockedAt: error.lockedAt,
+        remainingCooldown: error.remainingCooldown
+      } : null
+    });
+  }
+}
+
+async function confirmUnlock(req, res) {
+  try {
+    const { userId, otp } = req.body;
+    const result = await AuthService.confirmUnlock(userId, otp, req);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });

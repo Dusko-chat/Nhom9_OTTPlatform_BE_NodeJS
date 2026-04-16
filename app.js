@@ -26,6 +26,7 @@ const statusRoutes = require('./src/routes/statusRoutes');
 const departmentRoutes = require('./src/routes/departmentRoutes');
 const statsRoutes = require('./src/routes/statsRoutes');
 const attendanceRoutes = require('./src/routes/attendanceRoutes');
+const reportRoutes = require('./src/routes/reportRoutes');
 const { setupStompSocket } = require('./src/sockets/stompHandler');
 
 const app = express();
@@ -80,6 +81,7 @@ app.use('/api/status', statusRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/attendance', attendanceRoutes);
+app.use('/api/reports', reportRoutes);
 
 app.get('/api/status/health', (req, res) => {
   res.json({ status: 'ok' });

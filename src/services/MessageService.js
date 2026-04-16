@@ -43,6 +43,8 @@ const getMessagesByConversationId = async (conversationId, userId) => {
   // 3. Fill user info
   const resultMessages = messages.map(msg => {
     const msgObj = msg.toObject();
+    // Ensure id is always a string for consistent frontend lookup
+    msgObj.id = msgObj._id ? msgObj._id.toString() : (msgObj.id || '');
     if (msg.senderId === 'SYSTEM') {
       if (!msgObj.senderName) msgObj.senderName = 'Hệ thống';
     } else {

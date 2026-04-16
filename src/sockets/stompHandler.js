@@ -333,6 +333,17 @@ const setupStompSocket = (wss) => {
 const handleChatMessage = async (chatMessage) => {
   let { type, conversationId, senderId, senderName, senderAvatar, content, targetMessageId, emoji, replyToId, replyToContent } = chatMessage;
 
+  // Real-time Content Moderation
+  if (senderId !== 'SYSTEM' && (type === 'TEXT' || !type)) {
+    const ModerationService = require('../services/ModerationService');
+    const moderationResult = await ModerationService.checkMessage(senderId, content || '', module.exports);
+    
+    if (!moderationResult.allowed) {
+      console.log(`[STOMP] Message from ${senderId} blocked by moderation: ${moderationResult.action}`);
+      return; // Stop processing and don't broadcast/save
+    }
+  }
+
   // Augment missing sender info
   if (senderId !== 'SYSTEM' && (!senderName || !senderAvatar)) {
     try {
@@ -381,7 +392,9 @@ const handleChatMessage = async (chatMessage) => {
       
       const recallUpdate = msg.toJSON();
       if (!recallUpdate.createdAt) recallUpdate.createdAt = new Date().toISOString();
-      recallUpdate.targetMessageId = targetMessageId;
+      // Ensure both id and targetMessageId are consistent strings
+      recallUpdate.id = msg._id.toString();
+      recallUpdate.targetMessageId = targetMessageId.toString();
       await ConversationService.updateLastMessage(msg.conversationId, msg.content, msg.type, msg.senderId);
       broadcastToDestination('/topic/messages', recallUpdate);
     }

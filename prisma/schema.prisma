@@ -6,23 +6,46 @@ datasource db {
   provider  = "postgresql"
 }
 
+enum LockReason {
+  USER
+  AUTO
+  ADMIN
+}
+
 model User {
-  id               String   @id
-  email            String?  @unique
-  phoneNumber      String?  @unique
+  id               String      @id
+  email            String?     @unique
+  phoneNumber      String?     @unique
   password         String?
   fullName         String?
   avatarUrl        String?
-  status           String   @default("OFFLINE")
+  status           String      @default("OFFLINE")
   lastSeen         String?
   departmentId     String?
   jobTitle         String?
-  role             String   @default("GUEST")
-  isLocked         Boolean  @default(false)
+  role             String      @default("GUEST")
+  isLocked         Boolean     @default(false)
+  lockReason       LockReason?
+  lockDescription  String?
+  lockedAt         DateTime?
+  autoLockCount    Int         @default(0)
+  unlockAttempts   Int         @default(0)
   pushToken        String?
   currentSessionId String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
   @@map("users")
+}
+
+model SecurityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String   
+  ip        String?
+  device    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@map("security_logs")
 }

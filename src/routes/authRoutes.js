@@ -13,6 +13,10 @@ const {
   confirmPasswordChange,
   requestDeleteAccountOtp,
   confirmDeleteAccount,
+  requestLockAccountOtp,
+  confirmLockAccount,
+  requestUnlockOtp,
+  confirmUnlock,
   logout
 } = require('../controllers/AuthController');
 
@@ -30,6 +34,10 @@ router.post('/change-password/request', protect, requestPasswordChangeOtp);
 router.post('/change-password/confirm', protect, confirmPasswordChange);
 router.post('/delete-account/request', protect, requestDeleteAccountOtp);
 router.post('/delete-account/confirm', protect, confirmDeleteAccount);
+router.post('/lock-account/request-otp', protect, requestLockAccountOtp);
+router.post('/lock-account/confirm', protect, confirmLockAccount);
+router.post('/unlock-account/request-otp', requestUnlockOtp);
+router.post('/unlock-account/confirm', confirmUnlock);
 router.post('/logout', protect, logout);
 
 module.exports = router;

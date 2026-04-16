@@ -5,12 +5,34 @@ const { generateToken } = require('../utils/jwtUtils');
 const nodemailer = require('nodemailer');
 const { validatePassword } = require('../utils/validationUtils');
 const { v4: uuidv4 } = require('uuid');
+const stompHandler = require('../sockets/stompHandler');
 
 const registerOtpSessions = new Map();
 const resetPasswordOtps = new Map();
 const resetPasswordOtpExpiry = new Map();
 const passwordChangeSessions = new Map();
 const deleteAccountSessions = new Map();
+const lockAccountSessions = new Map();
+const unlockAccountSessions = new Map();
+
+// Helper to log security events
+const logSecurityEvent = async (userId, action, req, metadata = {}) => {
+  try {
+    const ip = req?.headers['x-forwarded-for'] || req?.connection?.remoteAddress;
+    const device = req?.headers['user-agent'];
+    await prisma.securityLog.create({
+      data: { userId, action, ip, device, metadata }
+    });
+  } catch (err) {
+    console.error('Failed to log security event:', err);
+  }
+};
+
+const getCooldownMinutes = (count) => {
+  if (count <= 1) return 30;
+  if (count === 2) return 120; // 2h
+  return 1440; // 24h
+};
 
 const transporter = nodemailer.createTransport({
   host: process.env.MAIL_HOST,
@@ -148,7 +170,19 @@ const login = async (emailOrPhone, password) => {
   });
 
   if (!user) throw new Error('Sai thông tin đăng nhập');
-  if (user.isLocked) throw new Error('Tài khoản của bạn đã bị khóa bởi quản trị viên');
+  
+  if (user.isLocked) {
+    const remainingCooldown = user.lockReason === 'AUTO' && user.lockedAt 
+      ? Math.max(0, (new Date(user.lockedAt).getTime() + getCooldownMinutes(user.autoLockCount) * 60000) - Date.now())
+      : 0;
+
+    const error = new Error('Tài khoản của bạn đang bị khóa');
+    error.isLocked = true;
+    error.lockReason = user.lockReason;
+    error.lockedAt = user.lockedAt;
+    error.remainingCooldown = remainingCooldown;
+    throw error;
+  }
 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) throw new Error('Sai mật khẩu đăng nhập');
@@ -158,6 +192,151 @@ const login = async (emailOrPhone, password) => {
     where: { id: user.id },
     data: { currentSessionId: sessionId }
   });
+
+  return {
+    userId: user.id,
+    _id: user.id,
+    fullName: user.fullName,
+    avatarUrl: user.avatarUrl,
+    token: generateToken(user.id, user.role, sessionId),
+    role: user.role,
+  };
+};
+
+const requestLockAccountOtp = async (userId, password, req) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new Error('Người dùng không tồn tại');
+
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) throw new Error('Mật khẩu không chính xác');
+
+  const otp = generateOtp();
+  const expiresAt = Date.now() + 300000; // 5 minutes
+
+  lockAccountSessions.set(userId, { otp, expiresAt });
+
+  await transporter.sendMail({
+    from: process.env.MAIL_USERNAME,
+    to: user.email,
+    subject: 'Xác nhận khóa tài khoản OTT App',
+    text: `Mã OTP xác nhận khóa tài khoản của bạn là: ${otp}. Lưu ý: Sau khi khóa, bạn sẽ bị đăng xuất khỏi tất cả thiết bị. Mã có hiệu lực trong 5 phút.`,
+  });
+
+  await logSecurityEvent(userId, 'REQUEST_LOCK_OTP', req);
+  return { message: 'Mã OTP xác nhận khóa tài khoản đã được gửi tới email của bạn' };
+};
+
+const confirmLockAccount = async (userId, otp, req) => {
+  const session = lockAccountSessions.get(userId);
+  if (!session || Date.now() > session.expiresAt) {
+    lockAccountSessions.delete(userId);
+    throw new Error('Mã OTP đã hết hạn hoặc không tồn tại');
+  }
+
+  if (session.otp !== otp) throw new Error('Mã OTP không chính xác');
+
+  console.log(`[AuthService] Attempting to lock account for userId: ${userId}`);
+  
+  if (!userId) {
+    throw new Error('UserId không hợp lệ');
+  }
+
+  try {
+    await prisma.user.update({
+      where: { id: userId.toString() },
+      data: { 
+        isLocked: true, 
+        lockReason: 'USER', 
+        lockedAt: new Date(),
+        currentSessionId: null 
+      }
+    });
+  } catch (dbError) {
+    console.error('[AuthService] Prisma Update Error:', dbError);
+    throw dbError; // Re-throw to be caught by controller
+  }
+
+  // Force logout all socket sessions
+  stompHandler.forceLogoutAllSessions(userId, 'Tài khoản đã bị khóa theo yêu cầu của bạn.');
+
+  await logSecurityEvent(userId, 'LOCK_ACCOUNT_SUCCESS', req, { reason: 'USER' });
+  lockAccountSessions.delete(userId);
+  return { success: true, message: 'Tài khoản của bạn đã được khóa thành công' };
+};
+
+const requestUnlockOtp = async (email, password, req) => {
+  const normalized = normalizeEmail(email);
+  const user = await prisma.user.findUnique({ where: { email: normalized } });
+  if (!user) throw new Error('Sai thông tin đăng nhập');
+
+  if (!user.isLocked) throw new Error('Tài khoản không bị khóa');
+  if (user.lockReason === 'ADMIN') throw new Error('Tài khoản bị khóa bởi quản trị viên. Vui lòng liên hệ hỗ trợ.');
+
+  // If AUTO lock, check cooldown
+  if (user.lockReason === 'AUTO' && user.lockedAt) {
+    const cooldownMs = getCooldownMinutes(user.autoLockCount) * 60000;
+    const timePassed = Date.now() - new Date(user.lockedAt).getTime();
+    if (timePassed < cooldownMs) {
+      const remainingSec = Math.ceil((cooldownMs - timePassed) / 1000);
+      throw new Error(`Tài khoản đang trong thời gian chờ vi phạm. Vui lòng thử lại sau ${Math.ceil(remainingSec / 60)} phút.`);
+    }
+  }
+
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) throw new Error('Sai mật khẩu đăng nhập');
+
+  const otp = generateOtp();
+  const expiresAt = Date.now() + 300000; // 5 minutes
+
+  unlockAccountSessions.set(user.id, { otp, expiresAt, attempts: 0 });
+
+  await transporter.sendMail({
+    from: process.env.MAIL_USERNAME,
+    to: user.email,
+    subject: 'Mã OTP mở khóa tài khoản OTT App',
+    text: `Mã OTP mở khóa tài khoản của bạn là: ${otp}. Mã có hiệu lực trong 5 phút.`,
+  });
+
+  await logSecurityEvent(user.id, 'REQUEST_UNLOCK_OTP', req);
+  return { userId: user.id, message: 'Mã OTP mở khóa đã được gửi tới email của bạn' };
+};
+
+const confirmUnlock = async (userId, otp, req) => {
+  if (!userId) {
+    throw new Error('UserId không hợp lệ');
+  }
+
+  const session = unlockAccountSessions.get(userId.toString());
+  if (!session || Date.now() > session.expiresAt) {
+    unlockAccountSessions.delete(userId.toString());
+    throw new Error('Mã OTP đã hết hạn hoặc không tồn tại');
+  }
+
+  session.attempts += 1;
+  if (session.otp !== otp) {
+    if (session.attempts >= 5) {
+      unlockAccountSessions.delete(userId.toString());
+      await logSecurityEvent(userId, 'UNLOCK_BRUTE_FORCE_PREVENTED', req, { attempts: session.attempts });
+      throw new Error('Quá số lần nhập sai mã OTP. Vui lòng yêu cầu lại mã mới.');
+    }
+    await logSecurityEvent(userId, 'UNLOCK_FAILED_WRONG_OTP', req, { attempts: session.attempts });
+    throw new Error(`Mã OTP không chính xác. Còn lại ${5 - session.attempts} lần thử.`);
+  }
+
+  const sessionId = crypto.randomUUID();
+  const user = await prisma.user.update({
+    where: { id: userId.toString() },
+    data: { 
+      isLocked: false, 
+      lockReason: null, 
+      lockedAt: null,
+      unlockAttempts: 0,
+      currentSessionId: sessionId
+    }
+  });
+
+  unlockAccountSessions.delete(userId.toString());
+  await logSecurityEvent(userId.toString(), 'UNLOCK_ACCOUNT_SUCCESS', req);
 
   return {
     userId: user.id,
@@ -304,6 +483,34 @@ const confirmDeleteAccount = async (userId, otp) => {
   return { success: true, message: 'Tài khoản của bạn đã được xóa vĩnh viễn' };
 };
 
+const autoLockAccount = async (userId, violationType, metadata = {}) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return;
+
+  const newAutoLockCount = (user.autoLockCount || 0) + 1;
+  
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      isLocked: true,
+      lockReason: 'AUTO',
+      lockedAt: new Date(),
+      autoLockCount: newAutoLockCount,
+      currentSessionId: null
+    }
+  });
+
+  // Log the event
+  await logSecurityEvent(userId, 'AUTO_LOCK_VIOLATION', null, {
+    violationType,
+    autoLockCount: newAutoLockCount,
+    ...metadata
+  });
+
+  // Force logout
+  stompHandler.forceLogoutAllSessions(userId, `Tài khoản của bạn đã bị khóa tự động do vi phạm: ${metadata.reason || violationType}.`);
+};
+
 const logout = async (userId) => {
   try {
     await prisma.user.update({
@@ -328,5 +535,10 @@ module.exports = {
   confirmPasswordChange,
   requestDeleteAccountOtp,
   confirmDeleteAccount,
+  requestLockAccountOtp,
+  confirmLockAccount,
+  requestUnlockOtp,
+  confirmUnlock,
+  autoLockAccount,
   logout
 };
