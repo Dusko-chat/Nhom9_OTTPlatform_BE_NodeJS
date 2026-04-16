@@ -82,6 +82,7 @@ module.exports = {
   resetPasswordWithOtp,
   resetPasswordWithOtp,
   checkEmail,
+  checkPhone,
   requestPasswordChangeOtp,
   confirmPasswordChange,
   requestDeleteAccountOtp,
@@ -93,6 +94,16 @@ async function checkEmail(req, res) {
   try {
     const { email } = req.body;
     const result = await AuthService.checkEmailAvailability(email);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}
+
+async function checkPhone(req, res) {
+  try {
+    const { phoneNumber } = req.body;
+    const result = await AuthService.checkPhoneAvailability(phoneNumber);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });

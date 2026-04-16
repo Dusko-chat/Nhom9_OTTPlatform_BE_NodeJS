@@ -8,6 +8,7 @@ const {
   requestForgotPasswordOtp,
   resetPasswordWithOtp,
   checkEmail,
+  checkPhone,
   requestPasswordChangeOtp,
   confirmPasswordChange,
   requestDeleteAccountOtp,
@@ -18,6 +19,7 @@ const {
 const { protect } = require('../middleware/authMiddleware');
 
 router.post('/check-email', checkEmail);
+router.post('/check-phone', checkPhone);
 router.post('/register', register);
 router.post('/register/request-otp', requestRegisterOtp);
 router.post('/register/verify-otp', verifyRegisterOtp);

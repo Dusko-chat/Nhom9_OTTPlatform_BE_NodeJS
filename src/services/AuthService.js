@@ -40,12 +40,24 @@ const checkEmailAvailability = async (email) => {
   return { available: !user };
 };
 
+// Check if phone number is already taken
+const checkPhoneAvailability = async (phoneNumber) => {
+  if (!phoneNumber) throw new Error('Số điện thoại không hợp lệ');
+  const user = await prisma.user.findUnique({ where: { phoneNumber } });
+  return { available: !user };
+};
+
 const requestRegisterOtp = async (userData) => {
   const email = normalizeEmail(userData.email);
   if (!email) throw new Error('Email không được để trống');
   
   const availability = await checkEmailAvailability(email);
   if (!availability.available) throw new Error('Email đã được sử dụng');
+
+  if (userData.phoneNumber) {
+    const phoneAvailability = await checkPhoneAvailability(userData.phoneNumber);
+    if (!phoneAvailability.available) throw new Error('Số điện thoại đã được sử dụng');
+  }
 
   if (!userData.password) throw new Error('Mật khẩu không được để trống');
   const passwordError = validatePassword(userData.password);
@@ -95,6 +107,14 @@ const verifyRegisterOtp = async (email, otp) => {
   if (userExists) {
     registerOtpSessions.delete(normalized);
     throw new Error('Email đã được sử dụng');
+  }
+
+  if (session.phoneNumber) {
+    const phoneExists = await prisma.user.findUnique({ where: { phoneNumber: session.phoneNumber } });
+    if (phoneExists) {
+        registerOtpSessions.delete(normalized);
+        throw new Error('Số điện thoại đã được sử dụng');
+    }
   }
 
   try {
@@ -298,6 +318,7 @@ const logout = async (userId) => {
 
 module.exports = {
   checkEmailAvailability,
+  checkPhoneAvailability,
   requestRegisterOtp,
   verifyRegisterOtp,
   login,
