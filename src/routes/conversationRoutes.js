@@ -12,6 +12,7 @@ const {
   markAsRead,
   toggleMute,
   deleteConversation,
+  disbandGroup,
 } = require('../controllers/ConversationController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -25,6 +26,7 @@ router.put('/:id/avatar', protect, updateAvatar);
 router.put('/:id/name', protect, updateName);
 router.post('/:id/reset-unread', protect, markAsRead);
 router.post('/:id/toggle-mute', protect, toggleMute);
+router.post('/:id/disband', protect, disbandGroup);
 router.delete('/:id', protect, deleteConversation);
 
 module.exports = router;

@@ -90,7 +90,16 @@ const updateName = async (req, res) => {
     const { id } = req.params;
     const { name } = req.query;
     const conv = await ConversationService.updateName(id, name);
-    if (conv) res.json({ success: true, data: conv });
+    if (conv) {
+      // Broadcast name update to all members
+      broadcastToDestination('/topic/messages', {
+        type: 'CONVERSATION_UPDATE',
+        conversationId: id,
+        name: name,
+        updatedAt: new Date().toISOString()
+      });
+      res.json({ success: true, data: conv });
+    }
     else res.status(404).json({ success: false, message: 'Not found' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -119,6 +128,39 @@ const toggleMute = async (req, res) => {
   }
 };
 
+const disbandGroup = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.query; // Admin ID
+    const result = await ConversationService.disbandGroup(id, userId);
+
+    if (result.success) {
+      // Broadcast to all members that the group is disbanded
+      result.members.forEach(mid => {
+        broadcastToDestination(`/topic/notifications/${mid}`, {
+          type: 'GROUP_DISBANDED',
+          conversationId: id,
+          title: 'Nhóm đã giải tán',
+          content: 'Trưởng nhóm đã giải tán cuộc trò chuyện này.',
+          silent: false
+        });
+      });
+
+      // Also broadcast to the message topic for instant UI removal if open
+      broadcastToDestination(`/topic/messages`, {
+        type: 'GROUP_DISBANDED',
+        conversationId: id
+      });
+
+      res.json({ success: true, data: 'Nhóm đã được giải tán' });
+    } else {
+      res.status(403).json({ success: false, message: result.message });
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 const deleteConversation = async (req, res) => {
   try {
     const { id } = req.params;
@@ -142,4 +184,5 @@ module.exports = {
   markAsRead,
   toggleMute,
   deleteConversation,
+  disbandGroup,
 };

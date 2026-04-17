@@ -210,6 +210,17 @@ const toggleMute = async (conversationId, userId) => {
   return conv.mutedUserIds.includes(userId); // returns new status
 };
 
+const disbandGroup = async (conversationId, adminId) => {
+  const conv = await Conversation.findById(conversationId);
+  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+    // Keep members list to broadcast before deletion
+    const members = [...conv.memberIds];
+    await Conversation.findByIdAndDelete(conversationId);
+    return { success: true, members };
+  }
+  return { success: false, message: 'Chỉ trưởng nhóm mới có quyền giải tán nhóm' };
+};
+
 const deleteConversation = async (conversationId, userId) => {
   const conv = await Conversation.findById(conversationId);
   if (conv) {
@@ -239,4 +250,5 @@ module.exports = {
   toggleMute,
   getConversationById,
   deleteConversation,
+  disbandGroup,
 };
