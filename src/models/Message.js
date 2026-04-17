@@ -12,6 +12,12 @@ const messageSchema = new mongoose.Schema({
   status: { type: String, default: 'SENT' }, // SENT, DELIVERED, SEEN, RECALLED
   replyToId: { type: String },
   replyToContent: { type: String },
+  contactData: {
+    userId: { type: String },
+    fullName: { type: String },
+    avatarUrl: { type: String },
+    email: { type: String }
+  },
   pollData: {
     question: { type: String },
     options: [{
