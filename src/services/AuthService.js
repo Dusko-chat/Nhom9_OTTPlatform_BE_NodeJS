@@ -76,9 +76,54 @@ const requestRegisterOtp = async (userData) => {
   const availability = await checkEmailAvailability(email);
   if (!availability.available) throw new Error('Email đã được sử dụng');
 
-  if (userData.phoneNumber) {
-    const phoneAvailability = await checkPhoneAvailability(userData.phoneNumber);
-    if (!phoneAvailability.available) throw new Error('Số điện thoại đã được sử dụng');
+  const otp = generateOtp();
+  const expiresAt = Date.now() + 300000; // 5 minutes
+
+  registerOtpSessions.set(email, {
+    otp,
+    expiresAt,
+    isVerified: false
+  });
+
+  await transporter.sendMail({
+    from: process.env.MAIL_USERNAME,
+    to: email,
+    subject: 'Mã OTP xác thực email đăng ký OTT App',
+    text: `Mã OTP của bạn là: ${otp}. Mã có hiệu lực trong 5 phút.`,
+  });
+
+  return {
+    email,
+    message: 'Đã gửi mã OTP xác thực email',
+    expiresInSeconds: 300,
+  };
+};
+
+const verifyRegisterOtp = async (email, otp) => {
+  const normalized = normalizeEmail(email);
+  const session = registerOtpSessions.get(normalized);
+
+  if (!session) throw new Error('Bạn chưa yêu cầu mã OTP hoặc mã đã hết hạn');
+  if (Date.now() > session.expiresAt) {
+    registerOtpSessions.delete(normalized);
+    throw new Error('Mã OTP đã hết hạn');
+  }
+  if (session.otp !== otp) throw new Error('Mã OTP không đúng');
+
+  // Verify and extend session to let user fill the profile form
+  session.isVerified = true;
+  session.expiresAt = Date.now() + 900000; // 15 minutes to fill details
+  registerOtpSessions.set(normalized, session);
+
+  return { email: normalized, message: 'Xác thực email thành công. Mời bạn hoàn tất thông tin cá nhân.' };
+};
+
+const completeRegistration = async (userData) => {
+  const email = normalizeEmail(userData.email);
+  const session = registerOtpSessions.get(email);
+
+  if (!session || !session.isVerified) {
+    throw new Error('Phiên làm việc đã hết hạn hoặc email chưa được xác thực');
   }
 
   if (!userData.password) throw new Error('Mật khẩu không được để trống');
@@ -87,72 +132,26 @@ const requestRegisterOtp = async (userData) => {
 
   if (!userData.fullName) throw new Error('Họ và tên không được để trống');
 
-  const otp = generateOtp();
-  const expiresAt = Date.now() + 60000; // 1 minute
-
-  const hashedPassword = await bcrypt.hash(userData.password, 10);
-
-  registerOtpSessions.set(email, {
-    fullName: userData.fullName.trim(),
-    phoneNumber: userData.phoneNumber,
-    password: hashedPassword,
-    otp,
-    expiresAt,
-  });
-
-  await transporter.sendMail({
-    from: process.env.MAIL_USERNAME,
-    to: email,
-    subject: 'Mã OTP đăng ký OTT App',
-    text: `Mã OTP của bạn là: ${otp}. Mã có hiệu lực trong 1 phút.`,
-  });
-
-  return {
-    email,
-    message: 'Đã gửi mã OTP xác thực đăng ký về email',
-    expiresInSeconds: 60,
-  };
-};
-
-const verifyRegisterOtp = async (email, otp) => {
-  const normalized = normalizeEmail(email);
-  const session = registerOtpSessions.get(normalized);
-
-  if (!session) throw new Error('Bạn chưa yêu cầu mã OTP đăng ký hoặc mã đã hết hạn');
-  if (Date.now() > session.expiresAt) {
-    registerOtpSessions.delete(normalized);
-    throw new Error('Mã OTP đã hết hạn');
-  }
-  if (session.otp !== otp) throw new Error('Mã OTP không đúng');
-
-  const userExists = await prisma.user.findUnique({ where: { email: normalized } });
-  if (userExists) {
-    registerOtpSessions.delete(normalized);
-    throw new Error('Email đã được sử dụng');
-  }
-
-  if (session.phoneNumber) {
-    const phoneExists = await prisma.user.findUnique({ where: { phoneNumber: session.phoneNumber } });
-    if (phoneExists) {
-        registerOtpSessions.delete(normalized);
-        throw new Error('Số điện thoại đã được sử dụng');
-    }
+  if (userData.phoneNumber) {
+    const phoneAvailability = await checkPhoneAvailability(userData.phoneNumber);
+    if (!phoneAvailability.available) throw new Error('Số điện thoại đã được sử dụng');
   }
 
   try {
+    const hashedPassword = await bcrypt.hash(userData.password, 10);
     const userId = uuidv4().replace(/-/g, '').substring(0, 24);
     const user = await prisma.user.create({
       data: {
         id: userId,
-        email: normalized,
-        password: session.password,
-        fullName: session.fullName,
-        phoneNumber: session.phoneNumber,
+        email: email,
+        password: hashedPassword,
+        fullName: userData.fullName.trim(),
+        phoneNumber: userData.phoneNumber,
       }
     });
 
-    registerOtpSessions.delete(normalized);
-    return { userId: user.id, _id: user.id, message: 'Đăng ký thành công' };
+    registerOtpSessions.delete(email);
+    return { userId: user.id, _id: user.id, message: 'Đăng ký tài khoản thành công' };
   } catch (err) {
     throw err;
   }
@@ -581,5 +580,6 @@ module.exports = {
   requestUnlockOtp,
   confirmUnlock,
   autoLockAccount,
+  completeRegistration,
   logout
 };

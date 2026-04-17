@@ -90,6 +90,14 @@ const unfriend = async (userId, friendId) => {
   });
 };
 
+const cancelRequest = async (senderId, receiverId) => {
+  await FriendRequest.deleteOne({
+    senderId,
+    receiverId,
+    status: 'PENDING'
+  });
+};
+
 const rejectRequest = async (requestId) => {
   await FriendRequest.deleteOne({ _id: requestId, status: 'PENDING' });
 };
@@ -99,6 +107,7 @@ module.exports = {
   getPendingRequests,
   acceptRequest,
   rejectRequest,
+  cancelRequest,
   getFriends,
   unfriend,
 };

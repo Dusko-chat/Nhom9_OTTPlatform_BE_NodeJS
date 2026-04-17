@@ -7,8 +7,8 @@ const userStrikes = new Map();
 
 // Basic profanity list (Vietnamese - Common words)
 const BLOCKED_WORDS = [
-  'đm', 'đmm', 'đjt', 'vcl', 'vcl', 'loz', 'lon', 'cac', 'cặc', 'đéo', 'deo', 
-  'ngu', 'óc chó', 'oc cho', 'mày', 'tao', 'chó', 'đồ ngu', 'ngu vcl'
+  'đm', 'đmm', 'đjt', 'vcl', 'loz', 'lon', 'cac', 'cặc', 'đéo', 'deo',
+  'ngu', 'óc chó', 'oc cho', 'chó', 'đồ ngu', 'ngu vcl'
 ];
 
 const VIOLATION_LIMIT = 3; // 3 strikes and you're locked
@@ -20,7 +20,7 @@ const spamHistory = new Map(); // userId -> [timestamps]
 
 const checkMessage = async (userId, content, stompHandler) => {
   // 1. Check Profanity
-  const hasProfanity = BLOCKED_WORDS.some(word => 
+  const hasProfanity = BLOCKED_WORDS.some(word =>
     content.toLowerCase().includes(word.toLowerCase())
   );
 
@@ -65,7 +65,7 @@ const handleViolation = async (userId, type, stompHandler) => {
   } else {
     // Send warning to user
     const remaining = VIOLATION_LIMIT - currentStrikes;
-    const warningMsg = type === 'SPAM' 
+    const warningMsg = type === 'SPAM'
       ? `Cảnh báo: Bạn đang gửi tin nhắn quá nhanh. Còn ${remaining} lần vi phạm nữa tài khoản sẽ bị khóa tự động.`
       : `Cảnh báo: Tin nhắn của bạn chứa nội dung không phù hợp. Còn ${remaining} lần vi phạm nữa tài khoản sẽ bị khóa tự động.`;
 
@@ -84,14 +84,14 @@ const handleViolation = async (userId, type, stompHandler) => {
 const triggerAutoLock = async (userId, type, stompHandler) => {
   const AuthService = require('./AuthService');
   const reason = type === 'SPAM' ? 'Phát hiện spam liên tục' : 'Vi phạm quy tắc cộng đồng (ngôn từ thô tục)';
-  
+
   try {
-    await AuthService.autoLockAccount(userId, type, { 
-      reason, 
+    await AuthService.autoLockAccount(userId, type, {
+      reason,
       strikeCount: VIOLATION_LIMIT,
-      ip: 'AUTOMATED_SYSTEM' 
+      ip: 'AUTOMATED_SYSTEM'
     });
-    
+
     // Reset strikes after lock
     userStrikes.set(userId, 0);
     spamHistory.delete(userId);

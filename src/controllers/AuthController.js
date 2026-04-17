@@ -3,7 +3,7 @@ const stompHandler = require('../sockets/stompHandler');
 
 const register = async (req, res) => {
   try {
-    const result = await AuthService.requestRegisterOtp(req.body);
+    const result = await AuthService.completeRegistration(req.body);
     res.json({ success: true, data: result });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
