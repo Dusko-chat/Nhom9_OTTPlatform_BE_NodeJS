@@ -9,22 +9,34 @@ const s3 = new AWS.S3({
 });
 
 const uploadFile = async (file) => {
-  const fileName = `${process.env.AWS_S3_FOLDER || 'uploads'}/${crypto.randomUUID()}${path.extname(file.originalname)}`;
+  const folder = process.env.AWS_S3_FOLDER || 'uploads';
+  const fileName = `${crypto.randomUUID()}${path.extname(file.originalname)}`;
+  const key = `${folder}/${fileName}`;
 
   const params = {
     Bucket: process.env.AWS_BUCKET_NAME,
-    Key: fileName,
+    Key: key,
     Body: file.buffer,
     ContentType: file.mimetype,
   };
 
-  const { Location } = await s3.upload(params).promise();
-  return Location;
+  await s3.upload(params).promise();
+  
+  let cfDomain = process.env.CLOUDFRONT_DOMAIN;
+  if (cfDomain) {
+    if (!cfDomain.startsWith('http')) cfDomain = `https://${cfDomain}`;
+    // Vì bạn đã set Origin Path là /ott-chat/attachments nên link CloudFront chỉ cần file name
+    return `${cfDomain.replace(/\/$/, '')}/${fileName}`;
+  }
+  
+  return `https://${process.env.AWS_BUCKET_NAME}.s3.amazonaws.com/${key}`;
 };
 
 const getPresignedUrl = async (fileName, fileType) => {
   const extension = path.extname(fileName);
-  const key = `${process.env.AWS_S3_FOLDER || 'uploads'}/${crypto.randomUUID()}${extension}`;
+  const folder = process.env.AWS_S3_FOLDER || 'uploads';
+  const fileNameUuid = `${crypto.randomUUID()}${extension}`;
+  const key = `${folder}/${fileNameUuid}`;
 
   const params = {
     Bucket: process.env.AWS_BUCKET_NAME,
@@ -35,9 +47,16 @@ const getPresignedUrl = async (fileName, fileType) => {
 
   const uploadUrl = await s3.getSignedUrlPromise('putObject', params);
   
-  // Return both the upload URL and the final public URL
-  // Standard S3 URL format
-  const finalUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.amazonaws.com/${key}`;
+  let cfDomain = process.env.CLOUDFRONT_DOMAIN;
+  let finalUrl;
+  
+  if (cfDomain) {
+    if (!cfDomain.startsWith('http')) cfDomain = `https://${cfDomain}`;
+    // Rút gọn URL cho CloudFront (bỏ folder vì đã có trong Origin Path)
+    finalUrl = `${cfDomain.replace(/\/$/, '')}/${fileNameUuid}`;
+  } else {
+    finalUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.amazonaws.com/${key}`;
+  }
 
   return { uploadUrl, finalUrl };
 };

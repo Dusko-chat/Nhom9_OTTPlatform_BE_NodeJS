@@ -35,17 +35,33 @@ const { broadcastToDestination } = require('../sockets/stompHandler');
 const pinMessage = async (req, res) => {
   try {
     const { id } = req.params;
-    const { message } = req.query;
-    const success = await ConversationService.pinMessage(id, message);
-    if (success) {
+    let pinData;
+    
+    // Support fallback to query parameter to prevent breaking old frontends immediately
+    if (req.body && Object.keys(req.body).length > 0 && req.body.messageId) {
+      pinData = req.body;
+    } else {
+      // Legacy structure - though we strongly recommend body
+      pinData = {
+        messageId: req.query.messageId || new Date().getTime().toString(),
+        content: req.query.message || '',
+        type: req.query.type || 'TEXT',
+        senderName: req.query.senderName || 'Người dùng'
+      };
+    }
+
+    const pinnedArrayOrFalse = await ConversationService.pinMessage(id, pinData);
+    if (pinnedArrayOrFalse !== false) {
       broadcastToDestination('/topic/messages', {
         type: 'PIN_UPDATE',
         conversationId: id,
-        pinnedMessage: message,
+        pinnedMessages: pinnedArrayOrFalse,
         createdAt: new Date().toISOString()
       });
+      res.json({ success: true, data: pinnedArrayOrFalse });
+    } else {
+       res.json({ success: false, data: 'Lỗi hệ thống' });
     }
-    res.json({ success, data: success ? 'Đã cập nhật tin nhắn ghim' : 'Lỗi hệ thống' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -172,6 +188,40 @@ const deleteConversation = async (req, res) => {
   }
 };
 
+const transferAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminId, newAdminId } = req.body;
+    
+    const success = await ConversationService.transferAdmin(id, adminId, newAdminId);
+    
+    if (success) {
+      // Broadcast to all members that the admin has changed
+      broadcastToDestination(`/topic/messages`, {
+        type: 'ADMIN_TRANSFERRED',
+        conversationId: id,
+        newAdminId: newAdminId
+      });
+      res.json({ success: true, data: 'Đã nhường quyền trưởng nhóm' });
+    } else {
+      res.status(403).json({ success: false, message: 'Lỗi: Không thể nhường quyền trưởng nhóm' });
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+const togglePin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.query;
+    const result = await ConversationService.togglePin(id, userId);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createGroup,
   startDirect,
@@ -185,4 +235,6 @@ module.exports = {
   toggleMute,
   deleteConversation,
   disbandGroup,
+  transferAdmin,
+  togglePin,
 };

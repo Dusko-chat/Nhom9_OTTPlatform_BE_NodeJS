@@ -417,6 +417,7 @@ const handleChatMessage = async (chatMessage) => {
   else if (savedMsg.type === 'FILE') previewContent = '[Tệp tin]';
   else if (savedMsg.type === 'RECALL') previewContent = 'Tin nhắn đã bị thu hồi';
   else if (savedMsg.type === 'POLL') previewContent = `[Bầu chọn] ${savedMsg.pollData?.question || ''}`;
+  else if (savedMsg.type === 'STICKER') previewContent = '[Nhãn dán]';
   else if (savedMsg.type === 'CALL_END' || savedMsg.type === 'CALL_JOIN') previewContent = savedMsg.content;
 
   await ConversationService.updateLastMessage(conversationId, previewContent, savedMsg.type, savedMsg.senderId);

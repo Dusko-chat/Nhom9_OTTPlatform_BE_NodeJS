@@ -10,8 +10,15 @@ const conversationSchema = new mongoose.Schema({
   unreadCounts: { type: Map, of: Number, default: {} },
   deletedHistoryAt: { type: Map, of: Date, default: {} },
   avatarUrl: { type: String },
-  pinnedMessage: { type: String },
-  mutedUserIds: [{ type: String }]
+  pinnedMessages: [{
+    messageId: { type: String },
+    content: { type: String },
+    type: { type: String, default: 'TEXT' },
+    senderName: { type: String },
+    createdAt: { type: Date, default: Date.now }
+  }],
+  mutedUserIds: [{ type: String }],
+  pinnedBy: [{ type: String }]
 }, { 
   timestamps: true,
   toJSON: { virtuals: true, flattenMaps: true },

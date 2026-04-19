@@ -97,8 +97,14 @@ const getUserConversations = async (userId) => {
     result.push(convObj);
   }
 
-  // Sort by lastMessageAt desc
+  // Sort: Pinned first, then by lastMessageAt desc
   result.sort((a, b) => {
+    const isPinnedA = a.pinnedBy && a.pinnedBy.includes(userId);
+    const isPinnedB = b.pinnedBy && b.pinnedBy.includes(userId);
+
+    if (isPinnedA && !isPinnedB) return -1;
+    if (!isPinnedA && isPinnedB) return 1;
+
     const timeA = a.lastMessageAt ? new Date(a.lastMessageAt) : new Date(0);
     const timeB = b.lastMessageAt ? new Date(b.lastMessageAt) : new Date(0);
     return timeB - timeA;
@@ -183,12 +189,21 @@ const addMember = async (conversationId, userId) => {
   return false;
 };
 
-const pinMessage = async (conversationId, messageContent) => {
+const pinMessage = async (conversationId, pinData) => {
   const conv = await Conversation.findById(conversationId);
   if (conv) {
-    conv.pinnedMessage = messageContent;
+    if (!conv.pinnedMessages) conv.pinnedMessages = [];
+    
+    const existingIndex = conv.pinnedMessages.findIndex(m => m.messageId === pinData.messageId);
+    if (existingIndex !== -1) {
+      // Unpin if exists
+      conv.pinnedMessages.splice(existingIndex, 1);
+    } else {
+      // Pin if not exists
+      conv.pinnedMessages.push(pinData);
+    }
     await conv.save();
-    return true;
+    return conv.pinnedMessages; // return the updated array so controller can broadcast it
   }
   return false;
 };
@@ -236,6 +251,35 @@ const getConversationById = async (id) => {
   return await Conversation.findById(id);
 };
 
+const transferAdmin = async (conversationId, adminId, newAdminId) => {
+  const conv = await Conversation.findById(conversationId);
+  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+    if (conv.memberIds.includes(newAdminId)) {
+      conv.adminId = newAdminId;
+      await conv.save();
+      return true;
+    }
+  }
+  return false;
+};
+
+const togglePin = async (conversationId, userId) => {
+  const conv = await Conversation.findById(conversationId);
+  if (!conv) return false;
+  
+  if (!conv.pinnedBy) conv.pinnedBy = [];
+  
+  const index = conv.pinnedBy.indexOf(userId);
+  if (index === -1) {
+    conv.pinnedBy.push(userId);
+  } else {
+    conv.pinnedBy.splice(index, 1);
+  }
+  
+  await conv.save();
+  return conv.pinnedBy.includes(userId); // returns new status
+};
+
 module.exports = {
   createGroup,
   startDirectConversation,
@@ -251,4 +295,6 @@ module.exports = {
   getConversationById,
   deleteConversation,
   disbandGroup,
+  transferAdmin,
+  togglePin,
 };
