@@ -15,6 +15,7 @@ const {
   disbandGroup,
   transferAdmin,
   togglePin,
+  summarizeConversation,
 } = require('../controllers/ConversationController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -32,5 +33,6 @@ router.post('/:id/toggle-pin', protect, togglePin);
 router.post('/:id/disband', protect, disbandGroup);
 router.post('/:id/transfer-admin', protect, transferAdmin);
 router.delete('/:id', protect, deleteConversation);
+router.post('/:id/summarize', protect, summarizeConversation);
 
 module.exports = router;
