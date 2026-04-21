@@ -11,14 +11,45 @@ const getMessageById = async (id) => {
   return await Message.findById(id);
 };
 
-const getMessagesByConversationId = async (conversationId, userId) => {
-  let messages = await Message.find({ conversationId }).sort({ createdAt: 1 });
+const getDeletedAtForUser = (deletedHistoryAt, userId) => {
+  if (!deletedHistoryAt || !userId) return null;
+  if (deletedHistoryAt instanceof Map) return deletedHistoryAt.get(userId);
+  return deletedHistoryAt[userId] || null;
+};
 
-  const conv = await Conversation.findById(conversationId);
-  const deleteAt = conv?.deletedHistoryAt?.get(userId);
+const getMessagesByConversationId = async (conversationId, userId, options = {}) => {
+  const { cursor, limit } = options;
+  const parsedLimit = Number.parseInt(limit, 10);
+  const effectiveLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
+    ? Math.min(parsedLimit, 100)
+    : null;
 
+  const conv = await Conversation.findById(conversationId).select('deletedHistoryAt').lean();
+  const deleteAt = getDeletedAtForUser(conv?.deletedHistoryAt, userId);
+
+  const query = { conversationId };
   if (deleteAt) {
-    messages = messages.filter((m) => m.createdAt > deleteAt);
+    query.createdAt = { ...(query.createdAt || {}), $gt: new Date(deleteAt) };
+  }
+
+  if (cursor) {
+    const cursorDate = new Date(cursor);
+    if (!Number.isNaN(cursorDate.getTime())) {
+      query.createdAt = { ...(query.createdAt || {}), $lt: cursorDate };
+    }
+  }
+
+  let queryBuilder = Message.find(query).sort({ createdAt: -1 }).lean();
+  if (effectiveLimit) {
+    queryBuilder = queryBuilder.limit(effectiveLimit + 1);
+  }
+
+  let messages = await queryBuilder;
+  let hasMore = false;
+
+  if (effectiveLimit && messages.length > effectiveLimit) {
+    hasMore = true;
+    messages = messages.slice(0, effectiveLimit);
   }
 
   // 1. Collect sender IDs for batch fetching
@@ -42,7 +73,7 @@ const getMessagesByConversationId = async (conversationId, userId) => {
 
   // 3. Fill user info
   const resultMessages = messages.map(msg => {
-    const msgObj = msg.toObject();
+    const msgObj = { ...msg };
     // Ensure id is always a string for consistent frontend lookup
     msgObj.id = msgObj._id ? msgObj._id.toString() : (msgObj.id || '');
     if (msg.senderId === 'SYSTEM') {
@@ -57,7 +88,21 @@ const getMessagesByConversationId = async (conversationId, userId) => {
     return msgObj;
   });
 
-  return resultMessages;
+  // API keeps chronological order for existing UI expectations
+  resultMessages.reverse();
+
+  const nextCursor = hasMore && resultMessages.length > 0
+    ? resultMessages[0].createdAt
+    : null;
+
+  return {
+    messages: resultMessages,
+    pagination: {
+      hasMore,
+      nextCursor,
+      limit: effectiveLimit
+    }
+  };
 };
 
 const clearHistoryForUser = async (conversationId, userId) => {
