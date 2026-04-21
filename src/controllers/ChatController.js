@@ -3,9 +3,12 @@ const MessageService = require('../services/MessageService');
 const getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const { userId } = req.query;
-    const messages = await MessageService.getMessagesByConversationId(conversationId, userId);
-    res.json({ success: true, data: messages });
+    const { userId, cursor, limit } = req.query;
+    const result = await MessageService.getMessagesByConversationId(conversationId, userId, {
+      cursor,
+      limit
+    });
+    res.json({ success: true, data: result.messages, pagination: result.pagination });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
