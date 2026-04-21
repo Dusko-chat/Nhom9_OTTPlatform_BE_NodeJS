@@ -24,5 +24,7 @@ const conversationSchema = new mongoose.Schema({
   toJSON: { virtuals: true, flattenMaps: true },
   toObject: { virtuals: true, flattenMaps: true }
 });
+// Indexes for optimized queries
+conversationSchema.index({ memberIds: 1, lastMessageAt: -1 });
 
 module.exports = mongoose.model('Conversation', conversationSchema);

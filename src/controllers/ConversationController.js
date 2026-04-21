@@ -129,10 +129,10 @@ const markAsRead = async (req, res) => {
     const { id } = req.params;
     const { userId } = req.query;
     await ConversationService.resetUnreadCount(id, userId);
-    
+
     // Also mark messages as SEEN
     await MessageService.markConversationAsSeen(id, userId);
-    
+
     // Broadcast status update
     broadcastToDestination('/topic/messages', {
       type: 'STATUS_UPDATE',

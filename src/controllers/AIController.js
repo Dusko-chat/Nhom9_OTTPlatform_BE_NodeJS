@@ -85,11 +85,11 @@ const ingestKnowledge = async (file, apiKey) => {
 
     // Chunking (~1000 characters per chunk)
     const chunks = fullText.match(/[\s\S]{1,1000}/g) || [];
-    
+
     const knowledgeEntries = [];
     for (const chunk of chunks) {
       if (chunk.trim().length < 10) continue;
-      
+
       const embedding = await getEmbedding(chunk.trim(), apiKey);
       if (embedding.length > 0) {
         knowledgeEntries.push({
@@ -128,9 +128,9 @@ const askAI = async (req, res) => {
     if (file) {
       const success = await ingestKnowledge(file, apiKey);
       if (success) {
-        return res.json({ 
-          success: true, 
-          data: `✅ Đã học xong tài liệu [${file.originalname}]. Dữ liệu đã được nạp vĩnh viễn vào Bộ nhớ Vector. Bạn có thể bắt đầu đặt câu hỏi liên quan đến tài liệu này!` 
+        return res.json({
+          success: true,
+          data: `✅ Đã học xong tài liệu [${file.originalname}]. Dữ liệu đã được nạp vĩnh viễn vào Bộ nhớ Vector. Bạn có thể bắt đầu đặt câu hỏi liên quan đến tài liệu này!`
         });
       }
       return res.json({ success: true, data: "❌ Có lỗi khi nạp tài liệu. Vui lòng thử lại." });
@@ -147,7 +147,7 @@ const askAI = async (req, res) => {
     // STEP 2: Retrieval from MongoDB if vector exists
     if (questionVector.length > 0) {
       const allKnowledge = await AiKnowledge.find({});
-      
+
       const scoredChunks = allKnowledge
         .map(k => ({
           chunk: k.textChunk,
