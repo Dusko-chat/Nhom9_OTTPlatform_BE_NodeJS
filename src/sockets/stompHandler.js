@@ -256,7 +256,35 @@ const setupStompSocket = (wss) => {
                 }
                 delete socket.activeCallConversationId;
              }
-          }
+           } else if (destination === '/app/message.delivered') {
+              const { messageId, conversationId } = body;
+              if (messageId) {
+                const updatedMsg = await MessageService.markAsDelivered(messageId);
+                if (updatedMsg) {
+                  broadcastToDestination('/topic/messages', {
+                    type: 'STATUS_UPDATE',
+                    messageId: messageId,
+                    conversationId: conversationId || updatedMsg.conversationId,
+                    status: 'DELIVERED',
+                    updatedAt: new Date().toISOString()
+                  });
+                }
+              }
+           } else if (destination === '/app/message.seen') {
+              const { conversationId } = body;
+              if (conversationId && socket.userId) {
+                await MessageService.markConversationAsSeen(conversationId, socket.userId);
+                await ConversationService.resetUnreadCount(conversationId, socket.userId);
+                
+                broadcastToDestination('/topic/messages', {
+                  type: 'STATUS_UPDATE',
+                  conversationId: conversationId,
+                  userId: socket.userId,
+                  status: 'SEEN',
+                  updatedAt: new Date().toISOString()
+                });
+              }
+           }
         } else if (frame.command === 'DISCONNECT') {
           socket.close();
         }

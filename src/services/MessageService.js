@@ -143,6 +143,28 @@ const closePoll = async (messageId, userId) => {
   return message;
 };
 
+const markAsDelivered = async (messageId) => {
+  const message = await Message.findById(messageId);
+  if (message && message.status === 'SENT') {
+    message.status = 'DELIVERED';
+    await message.save();
+    return message;
+  }
+  return null;
+};
+
+const markConversationAsSeen = async (conversationId, userId) => {
+  const result = await Message.updateMany(
+    { 
+      conversationId, 
+      senderId: { $ne: userId }, 
+      status: { $in: ['SENT', 'DELIVERED'] } 
+    },
+    { $set: { status: 'SEEN' } }
+  );
+  return result;
+};
+
 module.exports = {
   saveMessage,
   getMessageById,
@@ -150,5 +172,7 @@ module.exports = {
   clearHistoryForUser,
   votePoll,
   getPollDetails,
-  closePoll
+  closePoll,
+  markAsDelivered,
+  markConversationAsSeen
 };
