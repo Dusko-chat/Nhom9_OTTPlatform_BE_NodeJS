@@ -7,6 +7,8 @@ const conversationSchema = new mongoose.Schema({
   adminId: { type: String },
   lastMessage: { type: String },
   lastMessageAt: { type: Date },
+  lastMessageSenderId: { type: String },
+  sentByUserIds: [{ type: String }],
   unreadCounts: { type: Map, of: Number, default: {} },
   deletedHistoryAt: { type: Map, of: Date, default: {} },
   avatarUrl: { type: String },
