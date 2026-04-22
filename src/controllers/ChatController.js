@@ -4,9 +4,13 @@ const getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { userId, cursor, limit } = req.query;
+    
+    // Đảm bảo limit là số nguyên hợp lệ, mặc định là 20 nếu không truyền
+    const parsedLimit = parseInt(limit, 10) || 20;
+    
     const result = await MessageService.getMessagesByConversationId(conversationId, userId, {
       cursor,
-      limit
+      limit: parsedLimit
     });
     res.json({ success: true, data: result.messages, pagination: result.pagination });
   } catch (error) {
