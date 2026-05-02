@@ -33,13 +33,20 @@ const getMessagesByConversationId = async (conversationId, userId, options = {})
   }
 
   if (cursor) {
-    const cursorDate = new Date(cursor);
-    if (!Number.isNaN(cursorDate.getTime())) {
-      query.createdAt = { ...(query.createdAt || {}), $lt: cursorDate };
+    // cursor is a MongoDB ObjectId string (monotonically increasing, unique).
+    // Fall back to createdAt date comparison for legacy cursors that are ISO strings.
+    const mongoose = require('mongoose');
+    if (mongoose.Types.ObjectId.isValid(cursor)) {
+      query._id = { $lt: new mongoose.Types.ObjectId(cursor) };
+    } else {
+      const cursorDate = new Date(cursor);
+      if (!Number.isNaN(cursorDate.getTime())) {
+        query.createdAt = { ...(query.createdAt || {}), $lt: cursorDate };
+      }
     }
   }
 
-  let queryBuilder = Message.find(query).sort({ createdAt: -1 }).lean();
+  let queryBuilder = Message.find(query).sort({ _id: -1 }).lean();
   if (effectiveLimit) {
     queryBuilder = queryBuilder.limit(effectiveLimit + 1);
   }
@@ -91,8 +98,11 @@ const getMessagesByConversationId = async (conversationId, userId, options = {})
   // API keeps chronological order for existing UI expectations
   resultMessages.reverse();
 
-  const nextCursor = hasMore && resultMessages.length > 0
-    ? resultMessages[0].createdAt
+  // Use the _id of the OLDEST message in this batch as the next cursor.
+  // After reverse(), resultMessages[0] is the oldest.
+  const oldestMsg = resultMessages.length > 0 ? resultMessages[0] : null;
+  const nextCursor = hasMore && oldestMsg
+    ? (oldestMsg._id ? oldestMsg._id.toString() : null)
     : null;
 
   return {
