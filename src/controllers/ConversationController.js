@@ -243,7 +243,12 @@ const summarizeConversation = async (req, res) => {
     const { userId } = req.query;
 
     // Get messages for this conversation
-    const messages = await MessageService.getMessagesByConversationId(id, userId);
+    const result = await MessageService.getMessagesByConversationId(id, userId);
+    console.log('[AI Summarize] Result type:', typeof result);
+    console.log('[AI Summarize] Messages exists:', !!result.messages);
+    console.log('[AI Summarize] Messages is array:', Array.isArray(result.messages));
+    
+    const messages = result.messages || [];
 
     // Filter TEXT messages, skip SYSTEM, CALL, RECALL, etc.
     const textMessages = messages.filter(m => m.type === 'TEXT');
