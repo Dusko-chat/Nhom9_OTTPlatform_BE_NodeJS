@@ -464,6 +464,8 @@ const handleChatMessage = async (chatMessage) => {
 
   await ConversationService.updateLastMessage(conversationId, previewContent, savedMsg.type, savedMsg.senderId);
   broadcastToDestination('/topic/messages', savedMsg);
+  // Xóa Redis cache để request tiếp theo lấy dữ liệu mới từ MongoDB
+  await MessageService.invalidateMessageCache(conversationId);
 };
 
 const broadcastToDestination = (destination, body) => {
