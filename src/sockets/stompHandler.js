@@ -463,6 +463,11 @@ const handleChatMessage = async (chatMessage) => {
   else if (savedMsg.type === 'CALL_END' || savedMsg.type === 'CALL_JOIN') previewContent = savedMsg.content;
 
   await ConversationService.updateLastMessage(conversationId, previewContent, savedMsg.type, savedMsg.senderId);
+  
+  if (chatMessage.clientTempId) {
+    savedMsg.clientTempId = chatMessage.clientTempId;
+  }
+  
   broadcastToDestination('/topic/messages', savedMsg);
   // Xóa Redis cache để request tiếp theo lấy dữ liệu mới từ MongoDB
   await MessageService.invalidateMessageCache(conversationId);
