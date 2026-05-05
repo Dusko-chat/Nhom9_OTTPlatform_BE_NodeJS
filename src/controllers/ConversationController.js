@@ -74,6 +74,17 @@ const addMember = async (req, res) => {
     const { id } = req.params;
     const { userId } = req.query;
     const success = await ConversationService.addMember(id, userId);
+    if (success) {
+      // Broadcast to all members that someone new joined
+      const conv = await ConversationService.getConversationById(id);
+      broadcastToDestination('/topic/messages', {
+        type: 'MEMBER_ADDED',
+        conversationId: id,
+        userId: userId,
+        memberIds: conv ? conv.memberIds : [],
+        updatedAt: new Date().toISOString()
+      });
+    }
     res.json({ success, data: success ? 'Thêm thành viên thành công' : 'Lỗi: Người dùng đã có trong nhóm hoặc lỗi hệ thống' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -83,8 +94,32 @@ const addMember = async (req, res) => {
 const leaveGroup = async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
+    const { userId, kickedBy } = req.query; // kickedBy = admin who kicked, undefined = self-leave
+    const isKick = !!kickedBy;
+
+    // Get conv BEFORE removing, to check if leaving user is admin
+    const convBefore = await ConversationService.getConversationById(id);
+    const wasAdmin = convBefore && String(convBefore.adminId) === String(userId);
+
     const success = await ConversationService.leaveGroup(id, userId);
+    if (success) {
+      // Get updated conv to fetch new adminId (may have been auto-transferred)
+      const convAfter = await ConversationService.getConversationById(id);
+      const newAdminId = convAfter ? convAfter.adminId : null;
+      const remainingMemberIds = convAfter ? convAfter.memberIds : [];
+
+      broadcastToDestination('/topic/messages', {
+        type: 'MEMBER_LEFT',
+        conversationId: id,
+        userId: userId,          // who left/was kicked
+        kickedBy: kickedBy || null,
+        isKick: isKick,
+        memberIds: remainingMemberIds,
+        // If the leaving user was admin, broadcast new adminId so all clients update
+        newAdminId: wasAdmin ? newAdminId : undefined,
+        updatedAt: new Date().toISOString()
+      });
+    }
     res.json({ success, data: success ? 'Rời nhóm thành công' : 'Lỗi: Không thể rời nhóm' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -211,11 +246,13 @@ const transferAdmin = async (req, res) => {
     const success = await ConversationService.transferAdmin(id, adminId, newAdminId);
 
     if (success) {
-      // Broadcast to all members that the admin has changed
+      // Broadcast to ALL members so every client updates adminId in real-time
       broadcastToDestination(`/topic/messages`, {
         type: 'ADMIN_TRANSFERRED',
         conversationId: id,
-        newAdminId: newAdminId
+        oldAdminId: adminId,
+        newAdminId: newAdminId,
+        updatedAt: new Date().toISOString()
       });
       res.json({ success: true, data: 'Đã nhường quyền trưởng nhóm' });
     } else {

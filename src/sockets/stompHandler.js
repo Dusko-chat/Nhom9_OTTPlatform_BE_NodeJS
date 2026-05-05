@@ -185,6 +185,9 @@ const setupStompSocket = (wss) => {
              if (conversationId && socket.userId) {
                 const conv = await ConversationService.getConversationById(conversationId);
                 if (conv) {
+                   // Get current participants (caller may have already joined via call.join)
+                   const currentParticipants = CallService.getParticipants(conversationId);
+
                    conv.memberIds.forEach(mId => {
                       if (mId.toString() !== socket.userId.toString()) {
                          broadcastToDestination(`/topic/calls/${mId}`, {
@@ -193,7 +196,9 @@ const setupStompSocket = (wss) => {
                             callerName: body.callerName || "Nhóm",
                             callerAvatar: body.callerAvatar,
                             callType: body.callType || 'video',
-                            conversationId: conversationId
+                            conversationId: conversationId,
+                            isGroup: !!conv.isGroup,
+                            participants: currentParticipants
                          });
                       }
                    });
