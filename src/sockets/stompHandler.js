@@ -137,6 +137,15 @@ const setupStompSocket = (wss) => {
             if (body.conversationId) {
               broadcastToDestination(`/topic/typing/${body.conversationId}`, body);
             }
+          } else if (destination === '/app/chat.edit') {
+            try {
+              const { messageId, content, conversationId } = body;
+              const editedMessage = await MessageService.editMessage(messageId, content, socket.userId);
+              // Broadcast the updated message so all clients update their UI
+              broadcastToDestination('/topic/messages', Object.assign({}, editedMessage.toObject ? editedMessage.toObject() : editedMessage, { isEditEvent: true }));
+            } catch (err) {
+              console.error("Failed to edit message via STOMP:", err.message);
+            }
           } else if (destination === '/app/call.signal') {
             const toId = body.toId || body.receiverId;
             if (toId) {
