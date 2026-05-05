@@ -1,6 +1,28 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const prisma = require('../config/prisma');
+const Redis = require('ioredis');
+
+// Redis client — dùng chung Upstash đã có sẵn trong .env
+let redis = null;
+try {
+  redis = new Redis(process.env.REDIS_URL || {
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: process.env.REDIS_PORT || 6379,
+  }, {
+    retryStrategy: (times) => {
+      if (times > 3) return null;
+      return Math.min(times * 50, 2000);
+    }
+  });
+  redis.on('connect', () => console.log('[MessageCache] Redis connected'));
+  redis.on('error', () => {}); // silent — fallback to MongoDB if Redis is down
+} catch (_) {
+  redis = null;
+}
+
+const MSG_CACHE_TTL = 60; // seconds — page 1 cached for 60s
+const getMsgCacheKey = (conversationId) => `msgs:${conversationId}:p1`;
 
 const saveMessage = async (messageData) => {
   const message = await Message.create(messageData);
@@ -23,6 +45,18 @@ const getMessagesByConversationId = async (conversationId, userId, options = {})
   const effectiveLimit = Number.isFinite(parsedLimit) && parsedLimit > 0
     ? Math.min(parsedLimit, 100)
     : null;
+
+  // --- Redis cache: chỉ cache page đầu tiên (không có cursor) ---
+  const cacheKey = getMsgCacheKey(conversationId);
+  if (!cursor && redis) {
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log(`[MessageCache] HIT conv=${conversationId}`);
+        return JSON.parse(cached);
+      }
+    } catch (_) {}
+  }
 
   const conv = await Conversation.findById(conversationId).select('deletedHistoryAt').lean();
   const deleteAt = getDeletedAtForUser(conv?.deletedHistoryAt, userId);
@@ -105,7 +139,7 @@ const getMessagesByConversationId = async (conversationId, userId, options = {})
     ? (oldestMsg._id ? oldestMsg._id.toString() : null)
     : null;
 
-  return {
+  const result = {
     messages: resultMessages,
     pagination: {
       hasMore,
@@ -113,6 +147,28 @@ const getMessagesByConversationId = async (conversationId, userId, options = {})
       limit: effectiveLimit
     }
   };
+
+  // --- Lưu vào Redis (chỉ page đầu, không có cursor) ---
+  if (!cursor && redis) {
+    try {
+      await redis.set(cacheKey, JSON.stringify(result), 'EX', MSG_CACHE_TTL);
+      console.log(`[MessageCache] SET conv=${conversationId} TTL=${MSG_CACHE_TTL}s`);
+    } catch (_) {}
+  }
+
+  return result;
+};
+
+/**
+ * Xóa Redis cache của một conversation khi có tin nhắn mới.
+ * Được gọi từ stompHandler sau khi broadcast tin nhắn.
+ */
+const invalidateMessageCache = async (conversationId) => {
+  if (!conversationId || !redis) return;
+  try {
+    await redis.del(getMsgCacheKey(conversationId));
+    console.log(`[MessageCache] INVALIDATED conv=${conversationId}`);
+  } catch (_) {}
 };
 
 const clearHistoryForUser = async (conversationId, userId) => {
@@ -268,5 +324,6 @@ module.exports = {
   markAsDelivered,
   markConversationAsSeen,
   editMessage,
-  createSystemMessage
+  createSystemMessage,
+  invalidateMessageCache,
 };
