@@ -375,6 +375,24 @@ const setupStompSocket = (wss) => {
 const handleChatMessage = async (chatMessage) => {
   let { type, conversationId, senderId, senderName, senderAvatar, content, targetMessageId, emoji, replyToId, replyToContent } = chatMessage;
 
+  // Group Permissions Enforcement
+  if (conversationId) {
+    try {
+      const conversation = await ConversationService.getConversationById(conversationId);
+      if (conversation && conversation.isGroup) {
+        const isAdminOrDeputy = String(conversation.adminId) === String(senderId) || 
+                               (conversation.deputyIds && conversation.deputyIds.includes(senderId));
+        
+        if (conversation.permissions?.sendMessages === 'ADMINS' && !isAdminOrDeputy && senderId !== 'SYSTEM') {
+            console.log(`[STOMP] Blocked message from unauthorized user ${senderId} in group ${conversationId}`);
+            return; // Stop processing
+        }
+      }
+    } catch (err) {
+      console.error('Permission check failed:', err);
+    }
+  }
+
   // Real-time Content Moderation
   if (senderId !== 'SYSTEM' && (type === 'TEXT' || !type)) {
     const ModerationService = require('../services/ModerationService');
@@ -467,6 +485,7 @@ const handleChatMessage = async (chatMessage) => {
 };
 
 const broadcastToDestination = (destination, body) => {
+  const PushNotificationService = require('../services/PushNotificationService');
   let count = 0;
   sockets.forEach((socket, socketId) => {
     const userSubs = subscriptions.get(socketId);
@@ -498,7 +517,19 @@ const broadcastToDestination = (destination, body) => {
 
   if (destination.includes('call') || destination.includes('notification')) {
      console.log(`[STOMP] Broadcasted to ${count} socket(s) for ${destination}`);
+     
+     // If it's a call invite and no active sockets, send a Push Notification
+     if (count === 0 && body.type === 'invite' && destination.startsWith('/topic/calls/')) {
+        const userId = destination.replace('/topic/calls/', '');
+        PushNotificationService.sendPushNotification(
+            userId,
+            `Cuộc gọi từ ${body.callerName || 'Người dùng'}`,
+            `Bạn có một cuộc gọi ${body.callType === 'video' ? 'video' : 'thoại'} mới.`,
+            { ...body, type: 'CALL_INVITE' }
+        );
+     }
   }
+  return count;
 };
 
 const forceLogoutAllSessions = (userId, reason = 'Bạn đã đăng xuất') => {
