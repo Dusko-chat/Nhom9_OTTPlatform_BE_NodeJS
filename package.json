@@ -4,7 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node app.js",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "node scripts/test-call-service.js",
+    "test:integration": "node scripts/test-group-call-integration.js",
+    "test:get-tokens": "node scripts/get-test-tokens.js"
   },
   "keywords": [],
   "author": "",
