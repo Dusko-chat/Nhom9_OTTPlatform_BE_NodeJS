@@ -321,9 +321,16 @@ const togglePin = async (conversationId, userId) => {
   return conv.pinnedBy.includes(userId); // returns new status
 };
 
-const generateJoinLink = async (conversationId, adminId) => {
+const generateJoinLink = async (conversationId, requesterId) => {
   const conv = await Conversation.findById(conversationId);
-  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+  if (conv && conv.isGroup && conv.memberIds.includes(requesterId)) {
+    const isAdminOrDeputy = String(conv.adminId) === String(requesterId) || (conv.deputyIds && conv.deputyIds.includes(requesterId));
+    
+    // If link already exists and user is NOT admin/deputy, don't allow regeneration
+    if (conv.joinLink && !isAdminOrDeputy) {
+      return conv.joinLink; // Just return existing link
+    }
+
     const crypto = require('crypto');
     const newLink = crypto.randomBytes(8).toString('hex');
     conv.joinLink = newLink;
@@ -333,9 +340,11 @@ const generateJoinLink = async (conversationId, adminId) => {
   return null;
 };
 
-const toggleJoinApproval = async (conversationId, adminId, isRequired) => {
+const toggleJoinApproval = async (conversationId, requesterId, isRequired) => {
   const conv = await Conversation.findById(conversationId);
-  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+  const isAdminOrDeputy = conv && (String(conv.adminId) === String(requesterId) || (conv.deputyIds && conv.deputyIds.includes(requesterId)));
+  
+  if (conv && conv.isGroup && isAdminOrDeputy) {
     conv.joinApprovalRequired = isRequired;
     await conv.save();
     return isRequired;
@@ -355,11 +364,11 @@ const joinByLink = async (link, userId) => {
       conv.pendingMembers.push(userId);
       await conv.save();
     }
-    return { success: true, pending: true, message: 'Đã gửi yêu cầu tham gia. Vui lòng chờ duyệt.' };
+    return { success: true, pending: true, conversationId: conv._id, message: 'Đã gửi yêu cầu tham gia. Vui lòng chờ duyệt.' };
   } else {
     conv.memberIds.push(userId);
     await conv.save();
-    return { success: true, pending: false, message: 'Đã tham gia nhóm thành công', conversation: conv };
+    return { success: true, pending: false, conversationId: conv._id, message: 'Đã tham gia nhóm thành công', conversation: conv };
   }
 };
 

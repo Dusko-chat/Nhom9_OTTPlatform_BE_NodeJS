@@ -245,6 +245,18 @@ const editMessage = async (messageId, newContent, userId) => {
   return message;
 };
 
+const createSystemMessage = async (conversationId, content) => {
+  const message = await Message.create({
+    conversationId,
+    senderId: 'SYSTEM',
+    senderName: 'Hệ thống',
+    content,
+    type: 'SYSTEM',
+    status: 'SENT'
+  });
+  return message;
+};
+
 module.exports = {
   saveMessage,
   getMessageById,
@@ -255,5 +267,6 @@ module.exports = {
   closePoll,
   markAsDelivered,
   markConversationAsSeen,
-  editMessage
+  editMessage,
+  createSystemMessage
 };

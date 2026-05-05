@@ -246,7 +246,24 @@ const transferAdmin = async (req, res) => {
     const success = await ConversationService.transferAdmin(id, adminId, newAdminId);
 
     if (success) {
-      // Broadcast to ALL members so every client updates adminId in real-time
+      const prisma = require('../config/prisma');
+      const users = await prisma.user.findMany({
+        where: { id: { in: [adminId, newAdminId] } },
+        select: { id: true, fullName: true }
+      });
+      const oldAdmin = users.find(u => u.id === adminId);
+      const newAdmin = users.find(u => u.id === newAdminId);
+
+      const systemMsg = await MessageService.createSystemMessage(id, `${newAdmin?.fullName || 'Thành viên'} đã được chỉ định làm trưởng nhóm mới.`);
+
+      // Broadcast the system message to all members
+      const { broadcastToDestination } = require('../sockets/stompHandler');
+      broadcastToDestination(`/topic/messages`, {
+        ...systemMsg.toJSON(),
+        id: systemMsg._id.toString()
+      });
+
+      // Also broadcast the signal for role updates
       broadcastToDestination(`/topic/messages`, {
         type: 'ADMIN_TRANSFERRED',
         conversationId: id,
@@ -284,7 +301,7 @@ const summarizeConversation = async (req, res) => {
     console.log('[AI Summarize] Result type:', typeof result);
     console.log('[AI Summarize] Messages exists:', !!result.messages);
     console.log('[AI Summarize] Messages is array:', Array.isArray(result.messages));
-    
+
     const messages = result.messages || [];
 
     // Filter TEXT messages, skip SYSTEM, CALL, RECALL, etc.
@@ -339,8 +356,22 @@ const addDeputy = async (req, res) => {
     const { id } = req.params;
     const { adminId, deputyId } = req.body;
     const success = await ConversationService.addDeputy(id, adminId, deputyId);
-    
+
     if (success) {
+      const prisma = require('../config/prisma');
+      const deputy = await prisma.user.findUnique({
+        where: { id: deputyId },
+        select: { fullName: true }
+      });
+
+      const systemMsg = await MessageService.createSystemMessage(id, `${deputy?.fullName || 'Thành viên'} đã được chỉ định làm phó nhóm.`);
+
+      const { broadcastToDestination } = require('../sockets/stompHandler');
+      broadcastToDestination(`/topic/messages`, {
+        ...systemMsg.toJSON(),
+        id: systemMsg._id.toString()
+      });
+
       broadcastToDestination(`/topic/messages`, {
         type: 'DEPUTY_ADDED',
         conversationId: id,
@@ -360,8 +391,22 @@ const removeDeputy = async (req, res) => {
     const { id } = req.params;
     const { adminId, deputyId } = req.body;
     const success = await ConversationService.removeDeputy(id, adminId, deputyId);
-    
+
     if (success) {
+      const prisma = require('../config/prisma');
+      const deputy = await prisma.user.findUnique({
+        where: { id: deputyId },
+        select: { fullName: true }
+      });
+
+      const systemMsg = await MessageService.createSystemMessage(id, `${deputy?.fullName || 'Thành viên'} đã bị gỡ chức vụ phó nhóm.`);
+
+      const { broadcastToDestination } = require('../sockets/stompHandler');
+      broadcastToDestination(`/topic/messages`, {
+        ...systemMsg.toJSON(),
+        id: systemMsg._id.toString()
+      });
+
       broadcastToDestination(`/topic/messages`, {
         type: 'DEPUTY_REMOVED',
         conversationId: id,
@@ -381,8 +426,16 @@ const updatePermissions = async (req, res) => {
     const { id } = req.params;
     const { adminId, permissions } = req.body;
     const updatedPermissions = await ConversationService.updatePermissions(id, adminId, permissions);
-    
+
     if (updatedPermissions) {
+      const systemMsg = await MessageService.createSystemMessage(id, `Quyền hạn trong nhóm đã được cập nhật.`);
+
+      const { broadcastToDestination } = require('../sockets/stompHandler');
+      broadcastToDestination(`/topic/messages`, {
+        ...systemMsg.toJSON(),
+        id: systemMsg._id.toString()
+      });
+
       broadcastToDestination(`/topic/messages`, {
         type: 'PERMISSIONS_UPDATED',
         conversationId: id,
@@ -403,6 +456,14 @@ const generateJoinLink = async (req, res) => {
     const { adminId } = req.body;
     const link = await ConversationService.generateJoinLink(id, adminId);
     if (link) {
+      const systemMsg = await MessageService.createSystemMessage(id, `Link mời tham gia nhóm đã được làm mới.`);
+
+      const { broadcastToDestination } = require('../sockets/stompHandler');
+      broadcastToDestination(`/topic/messages`, {
+        ...systemMsg.toJSON(),
+        id: systemMsg._id.toString()
+      });
+
       res.json({ success: true, data: link });
     } else {
       res.status(403).json({ success: false, message: 'Không thể tạo link' });
@@ -418,6 +479,20 @@ const toggleJoinApproval = async (req, res) => {
     const { adminId, isRequired } = req.body;
     const result = await ConversationService.toggleJoinApproval(id, adminId, isRequired);
     if (result !== null) {
+      const systemMsg = await MessageService.createSystemMessage(id, `Chế độ duyệt thành viên đã được ${isRequired ? 'BẬT' : 'TẮT'}.`);
+
+      const { broadcastToDestination } = require('../sockets/stompHandler');
+      broadcastToDestination(`/topic/messages`, {
+        ...systemMsg.toJSON(),
+        id: systemMsg._id.toString()
+      });
+
+      broadcastToDestination(`/topic/messages`, {
+        type: 'JOIN_APPROVAL_TOGGLED',
+        conversationId: id,
+        isRequired: isRequired
+      });
+
       res.json({ success: true, data: result });
     } else {
       res.status(403).json({ success: false, message: 'Không thể cập nhật phê duyệt' });
@@ -433,10 +508,17 @@ const joinByLink = async (req, res) => {
     const userId = req.user.id;
     const result = await ConversationService.joinByLink(link, userId);
     if (result.success) {
+      const { broadcastToDestination } = require('../sockets/stompHandler');
       if (!result.pending && result.conversation) {
         broadcastToDestination(`/topic/messages`, {
           type: 'MEMBER_JOINED',
           conversationId: result.conversation._id,
+          userId: userId
+        });
+      } else if (result.pending) {
+        broadcastToDestination(`/topic/messages`, {
+          type: 'MEMBER_REQUEST_JOIN',
+          conversationId: result.conversationId,
           userId: userId
         });
       }
@@ -455,9 +537,16 @@ const approveMember = async (req, res) => {
     const { adminId, targetUserId, isApproved } = req.body;
     const success = await ConversationService.approveMember(id, adminId, targetUserId, isApproved);
     if (success) {
+      const { broadcastToDestination } = require('../sockets/stompHandler');
       if (isApproved) {
         broadcastToDestination(`/topic/messages`, {
           type: 'MEMBER_APPROVED',
+          conversationId: id,
+          userId: targetUserId
+        });
+      } else {
+        broadcastToDestination(`/topic/messages`, {
+          type: 'MEMBER_REJECTED',
           conversationId: id,
           userId: targetUserId
         });
