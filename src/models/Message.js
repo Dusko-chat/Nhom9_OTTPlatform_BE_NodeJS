@@ -12,6 +12,8 @@ const messageSchema = new mongoose.Schema({
   status: { type: String, default: 'SENT' }, // SENT, DELIVERED, SEEN, RECALLED
   replyToId: { type: String },
   replyToContent: { type: String },
+  isEdited: { type: Boolean, default: false },
+  mentions: [{ type: String }],
   contactData: {
     userId: { type: String },
     fullName: { type: String },

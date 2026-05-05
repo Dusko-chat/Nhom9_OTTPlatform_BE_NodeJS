@@ -256,11 +256,52 @@ const transferAdmin = async (conversationId, adminId, newAdminId) => {
   if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
     if (conv.memberIds.includes(newAdminId)) {
       conv.adminId = newAdminId;
+      // If new admin was a deputy, remove them from deputy list
+      if (conv.deputyIds && conv.deputyIds.includes(newAdminId)) {
+        conv.deputyIds = conv.deputyIds.filter(id => id !== newAdminId);
+      }
       await conv.save();
       return true;
     }
   }
   return false;
+};
+
+const addDeputy = async (conversationId, adminId, deputyId) => {
+  const conv = await Conversation.findById(conversationId);
+  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+    if (conv.memberIds.includes(deputyId) && String(deputyId) !== String(adminId)) {
+      if (!conv.deputyIds) conv.deputyIds = [];
+      if (!conv.deputyIds.includes(deputyId)) {
+        conv.deputyIds.push(deputyId);
+        await conv.save();
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
+const removeDeputy = async (conversationId, adminId, deputyId) => {
+  const conv = await Conversation.findById(conversationId);
+  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+    if (conv.deputyIds && conv.deputyIds.includes(deputyId)) {
+      conv.deputyIds = conv.deputyIds.filter(id => id !== deputyId);
+      await conv.save();
+      return true;
+    }
+  }
+  return false;
+};
+
+const updatePermissions = async (conversationId, adminId, newPermissions) => {
+  const conv = await Conversation.findById(conversationId);
+  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+    conv.permissions = { ...conv.permissions, ...newPermissions };
+    await conv.save();
+    return conv.permissions;
+  }
+  return null;
 };
 
 const togglePin = async (conversationId, userId) => {
@@ -280,6 +321,65 @@ const togglePin = async (conversationId, userId) => {
   return conv.pinnedBy.includes(userId); // returns new status
 };
 
+const generateJoinLink = async (conversationId, adminId) => {
+  const conv = await Conversation.findById(conversationId);
+  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+    const crypto = require('crypto');
+    const newLink = crypto.randomBytes(8).toString('hex');
+    conv.joinLink = newLink;
+    await conv.save();
+    return newLink;
+  }
+  return null;
+};
+
+const toggleJoinApproval = async (conversationId, adminId, isRequired) => {
+  const conv = await Conversation.findById(conversationId);
+  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+    conv.joinApprovalRequired = isRequired;
+    await conv.save();
+    return isRequired;
+  }
+  return null;
+};
+
+const joinByLink = async (link, userId) => {
+  const conv = await Conversation.findOne({ joinLink: link });
+  if (!conv || !conv.isGroup) return { success: false, message: 'Link không hợp lệ' };
+  
+  if (conv.memberIds.includes(userId)) return { success: false, message: 'Đã là thành viên' };
+
+  if (conv.joinApprovalRequired) {
+    if (!conv.pendingMembers) conv.pendingMembers = [];
+    if (!conv.pendingMembers.includes(userId)) {
+      conv.pendingMembers.push(userId);
+      await conv.save();
+    }
+    return { success: true, pending: true, message: 'Đã gửi yêu cầu tham gia. Vui lòng chờ duyệt.' };
+  } else {
+    conv.memberIds.push(userId);
+    await conv.save();
+    return { success: true, pending: false, message: 'Đã tham gia nhóm thành công', conversation: conv };
+  }
+};
+
+const approveMember = async (conversationId, adminId, targetUserId, isApproved) => {
+  const conv = await Conversation.findById(conversationId);
+  if (conv && conv.isGroup && String(conv.adminId) === String(adminId)) {
+    if (conv.pendingMembers && conv.pendingMembers.includes(targetUserId)) {
+      conv.pendingMembers = conv.pendingMembers.filter(id => id !== targetUserId);
+      if (isApproved) {
+        if (!conv.memberIds.includes(targetUserId)) {
+          conv.memberIds.push(targetUserId);
+        }
+      }
+      await conv.save();
+      return true;
+    }
+  }
+  return false;
+};
+
 module.exports = {
   createGroup,
   startDirectConversation,
@@ -297,4 +397,11 @@ module.exports = {
   disbandGroup,
   transferAdmin,
   togglePin,
+  addDeputy,
+  removeDeputy,
+  updatePermissions,
+  generateJoinLink,
+  toggleJoinApproval,
+  joinByLink,
+  approveMember,
 };

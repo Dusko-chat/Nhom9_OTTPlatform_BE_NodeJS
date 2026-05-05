@@ -16,6 +16,13 @@ const {
   transferAdmin,
   togglePin,
   summarizeConversation,
+  addDeputy,
+  removeDeputy,
+  updatePermissions,
+  generateJoinLink,
+  toggleJoinApproval,
+  joinByLink,
+  approveMember,
 } = require('../controllers/ConversationController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -34,5 +41,12 @@ router.post('/:id/disband', protect, disbandGroup);
 router.post('/:id/transfer-admin', protect, transferAdmin);
 router.delete('/:id', protect, deleteConversation);
 router.post('/:id/summarize', protect, summarizeConversation);
+router.post('/:id/add-deputy', protect, addDeputy);
+router.post('/:id/remove-deputy', protect, removeDeputy);
+router.post('/:id/permissions', protect, updatePermissions);
+router.post('/:id/generate-link', protect, generateJoinLink);
+router.post('/:id/toggle-approval', protect, toggleJoinApproval);
+router.post('/join-by-link', protect, joinByLink);
+router.post('/:id/approve-member', protect, approveMember);
 
 module.exports = router;

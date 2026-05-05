@@ -292,6 +292,143 @@ Yêu cầu:
   }
 };
 
+const addDeputy = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminId, deputyId } = req.body;
+    const success = await ConversationService.addDeputy(id, adminId, deputyId);
+    
+    if (success) {
+      broadcastToDestination(`/topic/messages`, {
+        type: 'DEPUTY_ADDED',
+        conversationId: id,
+        deputyId: deputyId
+      });
+      res.json({ success: true, data: 'Đã thêm phó nhóm' });
+    } else {
+      res.status(403).json({ success: false, message: 'Không thể thêm phó nhóm' });
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+const removeDeputy = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminId, deputyId } = req.body;
+    const success = await ConversationService.removeDeputy(id, adminId, deputyId);
+    
+    if (success) {
+      broadcastToDestination(`/topic/messages`, {
+        type: 'DEPUTY_REMOVED',
+        conversationId: id,
+        deputyId: deputyId
+      });
+      res.json({ success: true, data: 'Đã gỡ phó nhóm' });
+    } else {
+      res.status(403).json({ success: false, message: 'Không thể gỡ phó nhóm' });
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+const updatePermissions = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminId, permissions } = req.body;
+    const updatedPermissions = await ConversationService.updatePermissions(id, adminId, permissions);
+    
+    if (updatedPermissions) {
+      broadcastToDestination(`/topic/messages`, {
+        type: 'PERMISSIONS_UPDATED',
+        conversationId: id,
+        permissions: updatedPermissions
+      });
+      res.json({ success: true, data: updatedPermissions });
+    } else {
+      res.status(403).json({ success: false, message: 'Không thể cập nhật quyền' });
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+const generateJoinLink = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminId } = req.body;
+    const link = await ConversationService.generateJoinLink(id, adminId);
+    if (link) {
+      res.json({ success: true, data: link });
+    } else {
+      res.status(403).json({ success: false, message: 'Không thể tạo link' });
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+const toggleJoinApproval = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminId, isRequired } = req.body;
+    const result = await ConversationService.toggleJoinApproval(id, adminId, isRequired);
+    if (result !== null) {
+      res.json({ success: true, data: result });
+    } else {
+      res.status(403).json({ success: false, message: 'Không thể cập nhật phê duyệt' });
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+const joinByLink = async (req, res) => {
+  try {
+    const { link } = req.body;
+    const userId = req.user.id;
+    const result = await ConversationService.joinByLink(link, userId);
+    if (result.success) {
+      if (!result.pending && result.conversation) {
+        broadcastToDestination(`/topic/messages`, {
+          type: 'MEMBER_JOINED',
+          conversationId: result.conversation._id,
+          userId: userId
+        });
+      }
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const approveMember = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminId, targetUserId, isApproved } = req.body;
+    const success = await ConversationService.approveMember(id, adminId, targetUserId, isApproved);
+    if (success) {
+      if (isApproved) {
+        broadcastToDestination(`/topic/messages`, {
+          type: 'MEMBER_APPROVED',
+          conversationId: id,
+          userId: targetUserId
+        });
+      }
+      res.json({ success: true, data: 'Đã xử lý yêu cầu' });
+    } else {
+      res.status(403).json({ success: false, message: 'Không thể xử lý yêu cầu' });
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createGroup,
   startDirect,
@@ -308,4 +445,11 @@ module.exports = {
   transferAdmin,
   togglePin,
   summarizeConversation,
+  addDeputy,
+  removeDeputy,
+  updatePermissions,
+  generateJoinLink,
+  toggleJoinApproval,
+  joinByLink,
+  approveMember,
 };
