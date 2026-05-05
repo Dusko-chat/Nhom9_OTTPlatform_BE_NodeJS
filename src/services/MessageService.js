@@ -229,6 +229,19 @@ const editMessage = async (messageId, newContent, userId) => {
   message.content = newContent;
   message.isEdited = true;
   await message.save();
+
+  // Update conversation preview if this is the latest message
+  const newerMessage = await Message.findOne({
+    conversationId: message.conversationId,
+    createdAt: { $gt: message.createdAt }
+  });
+
+  if (!newerMessage) {
+    await Conversation.findByIdAndUpdate(message.conversationId, {
+      lastMessage: newContent
+    });
+  }
+
   return message;
 };
 
