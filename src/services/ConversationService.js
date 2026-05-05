@@ -105,8 +105,8 @@ const getUserConversations = async (userId) => {
     if (isPinnedA && !isPinnedB) return -1;
     if (!isPinnedA && isPinnedB) return 1;
 
-    const timeA = a.lastMessageAt ? new Date(a.lastMessageAt) : new Date(0);
-    const timeB = b.lastMessageAt ? new Date(b.lastMessageAt) : new Date(0);
+    const timeA = a.lastMessageAt ? new Date(a.lastMessageAt) : new Date(a.createdAt);
+    const timeB = b.lastMessageAt ? new Date(b.lastMessageAt) : new Date(b.createdAt);
     return timeB - timeA;
   });
 
