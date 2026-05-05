@@ -67,10 +67,26 @@ const closePoll = async (req, res) => {
   }
 };
 
+const editMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { userId, newContent } = req.body;
+    const message = await MessageService.editMessage(messageId, newContent, userId);
+    
+    // Broadcast update
+    broadcastToDestination('/topic/messages', Object.assign({}, message.toObject ? message.toObject() : message, { isEditEvent: true }));
+    
+    res.json({ success: true, data: message });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getMessages,
   clearHistory,
   votePoll,
   getPollDetails,
   closePoll,
+  editMessage,
 };

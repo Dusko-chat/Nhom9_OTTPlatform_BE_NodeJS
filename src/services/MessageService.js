@@ -220,6 +220,18 @@ const markConversationAsSeen = async (conversationId, userId) => {
   return result;
 };
 
+const editMessage = async (messageId, newContent, userId) => {
+  const message = await Message.findById(messageId);
+  if (!message) throw new Error('Message not found');
+  if (message.senderId !== userId) throw new Error('Only sender can edit message');
+  if (message.type !== 'TEXT') throw new Error('Only text messages can be edited');
+
+  message.content = newContent;
+  message.isEdited = true;
+  await message.save();
+  return message;
+};
+
 module.exports = {
   saveMessage,
   getMessageById,
@@ -229,5 +241,6 @@ module.exports = {
   getPollDetails,
   closePoll,
   markAsDelivered,
-  markConversationAsSeen
+  markConversationAsSeen,
+  editMessage
 };
