@@ -18,11 +18,21 @@ const SPAM_WINDOW_MS = 10000;
 
 const spamHistory = new Map(); // userId -> [timestamps]
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const containsBlockedWord = (content) => {
+  const text = (content || '').toString();
+  return BLOCKED_WORDS.some((word) => {
+    const escaped = escapeRegex(word.trim());
+    // Match blocked terms as standalone tokens/phrases, not as substrings inside names (e.g. "Nguyen").
+    const re = new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}($|[^\\p{L}\\p{N}_])`, 'iu');
+    return re.test(text);
+  });
+};
+
 const checkMessage = async (userId, content, stompHandler) => {
   // 1. Check Profanity
-  const hasProfanity = BLOCKED_WORDS.some(word =>
-    content.toLowerCase().includes(word.toLowerCase())
-  );
+  const hasProfanity = containsBlockedWord(content);
 
   if (hasProfanity) {
     return await handleViolation(userId, 'PROFANITY', stompHandler);

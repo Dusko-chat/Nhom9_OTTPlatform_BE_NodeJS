@@ -13,7 +13,12 @@ const messageSchema = new mongoose.Schema({
   replyToId: { type: String },
   replyToContent: { type: String },
   isEdited: { type: Boolean, default: false },
-  mentions: [{ type: String }],
+  mentions: [{
+    userId: { type: String },
+    displayName: { type: String },
+    start: { type: Number },
+    length: { type: Number }
+  }],
   contactData: {
     userId: { type: String },
     fullName: { type: String },
