@@ -52,7 +52,7 @@ const pinMessage = async (req, res) => {
       };
     }
 
-    const pinnedArrayOrFalse = await ConversationService.pinMessage(id, pinData);
+    const pinnedArrayOrFalse = await ConversationService.pinMessage(id, req.user.id, pinData);
     if (pinnedArrayOrFalse !== false) {
       broadcastToDestination('/topic/messages', {
         type: 'PIN_UPDATE',
@@ -130,7 +130,7 @@ const updateAvatar = async (req, res) => {
   try {
     const { id } = req.params;
     const { avatarUrl } = req.query;
-    const conv = await ConversationService.updateAvatar(id, avatarUrl);
+    const conv = await ConversationService.updateAvatar(id, req.user.id, avatarUrl);
     if (conv) res.json({ success: true, data: conv });
     else res.status(404).json({ success: false, message: 'Not found' });
   } catch (error) {
@@ -142,7 +142,7 @@ const updateName = async (req, res) => {
   try {
     const { id } = req.params;
     const { name } = req.query;
-    const conv = await ConversationService.updateName(id, name);
+    const conv = await ConversationService.updateName(id, req.user.id, name);
     if (conv) {
       // Broadcast name update to all members
       broadcastToDestination('/topic/messages', {

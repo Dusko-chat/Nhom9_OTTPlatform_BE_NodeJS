@@ -146,9 +146,16 @@ const resetUnreadCount = async (conversationId, userId) => {
   }
 };
 
-const updateAvatar = async (id, avatarUrl) => {
+const updateAvatar = async (id, requesterId, avatarUrl) => {
   const conv = await Conversation.findById(id);
   if (conv) {
+    // Check permission
+    const isAdminOrDeputy = String(conv.adminId) === String(requesterId) || 
+                           (conv.deputyIds && conv.deputyIds.includes(String(requesterId)));
+    
+    if (conv.isGroup && conv.permissions?.changeGroupInfo === 'ADMINS' && !isAdminOrDeputy) {
+      return null; // Unauthorized
+    }
     conv.avatarUrl = avatarUrl;
     await conv.save();
     return conv;
@@ -156,9 +163,16 @@ const updateAvatar = async (id, avatarUrl) => {
   return null;
 };
 
-const updateName = async (id, name) => {
+const updateName = async (id, requesterId, name) => {
   const conv = await Conversation.findById(id);
   if (conv) {
+    // Check permission
+    const isAdminOrDeputy = String(conv.adminId) === String(requesterId) || 
+                           (conv.deputyIds && conv.deputyIds.includes(String(requesterId)));
+    
+    if (conv.isGroup && conv.permissions?.changeGroupInfo === 'ADMINS' && !isAdminOrDeputy) {
+      return null; // Unauthorized
+    }
     conv.name = name;
     await conv.save();
     return conv;
@@ -189,9 +203,16 @@ const addMember = async (conversationId, userId) => {
   return false;
 };
 
-const pinMessage = async (conversationId, pinData) => {
+const pinMessage = async (conversationId, requesterId, pinData) => {
   const conv = await Conversation.findById(conversationId);
   if (conv) {
+    // Check permission
+    const isAdminOrDeputy = String(conv.adminId) === String(requesterId) || 
+                           (conv.deputyIds && conv.deputyIds.includes(String(requesterId)));
+    
+    if (conv.isGroup && conv.permissions?.pinMessages === 'ADMINS' && !isAdminOrDeputy) {
+      return false; // Unauthorized
+    }
     if (!conv.pinnedMessages) conv.pinnedMessages = [];
     
     const existingIndex = conv.pinnedMessages.findIndex(m => m.messageId === pinData.messageId);
